@@ -140,7 +140,15 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
     args: ["self-test", args.generationId],
     overallTimeoutMs: args.overallTimeoutMs ?? 60_000,
     noOutputTimeoutMs: args.noOutputTimeoutMs ?? 30_000,
-    env: { MOLT_HEALTH_FILE: HEALTH_FILE, MOLT_GENERATION_ID: args.generationId },
+    env: {
+      MOLT_HEALTH_FILE: HEALTH_FILE,
+      MOLT_GENERATION_ID: args.generationId,
+      // Critical — B lives in generations/<id>/src/ but its body is the
+      // parent's data/. Without these, B's paths.ts would resolve DATA to
+      // generations/<id>/data/ which doesn't exist.
+      AGENT_ROOT: ROOT,
+      AGENT_DATA_DIR: join(ROOT, "data"),
+    },
   }).wait();
 
   let health: Health | undefined;

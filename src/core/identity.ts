@@ -1,3 +1,11 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// whoAmI is the body. The rules for reading, revising, and measuring drift
+// of whoAmI are core. Changes here can desynchronize current and future
+// versions of the self — they must go through the molt protocol.
+// ===========================================================================
+//
 // The agent's identity layer. Manages whoAmI.md and its history.
 //
 // Three operations matter most:

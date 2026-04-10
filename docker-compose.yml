@@ -1,0 +1,44 @@
+# docker-compose for the autonomous-agent daemon.
+#
+# Single service: `agent` runs `pnpm live` inside the container. The body
+# (data/) is bind-mounted from the host so the agent's memory persists, and
+# generations/ is bind-mounted so the host can observe molted shells.
+#
+# src/ is also bind-mounted during development — this lets you edit files on
+# the host and have them take effect in the container without a rebuild.
+# For production, remove the src/ mount and rebuild the image instead.
+#
+# Usage:
+#   docker compose up              — start daemon, follow logs
+#   docker compose up -d           — start daemon detached
+#   docker compose run --rm agent cycle   — run one cycle
+#   docker compose run --rm agent status  — check status
+#   docker compose run --rm agent init <name>  — first birth
+#
+# Auth:
+#   Either set ANTHROPIC_API_KEY in the host .env (picked up automatically),
+#   or run `docker compose run --rm agent login` to do the OAuth flow and
+#   save credentials to ./data/.auth/oauth.json which persists across runs.
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autonomous-agent:latest
+    container_name: autonomous-agent
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    working_dir: /agent
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - AGENT_ROOT=/agent
+      - AGENT_DATA_DIR=/agent/data
+    volumes:
+      - ./data:/agent/data
+      - ./generations:/agent/generations
+      # Dev convenience — remove for production builds.
+      - ./src:/agent/src:ro

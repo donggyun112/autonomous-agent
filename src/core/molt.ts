@@ -1,3 +1,11 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// The molt protocol itself cannot be mutated through manage_self. Changing
+// how molting works is a meta-level change — it must be done via a molt
+// that the current (working) protocol carries out, with extra care.
+// ===========================================================================
+//
 // MOLT — full molt protocol
 //
 // The agent's hardest, rarest operation: building a new shell (B) inside the
@@ -27,6 +35,7 @@ import {
   copyFile,
   cp,
   mkdir,
+  readdir,
   readFile,
   rename,
   rm,
@@ -34,7 +43,7 @@ import {
   writeFile,
 } from "fs/promises";
 import { join, relative } from "path";
-import { spawnSupervised, type RunResult } from "../primitives/supervisor.js";
+import { isDockerAvailable, spawnSupervised, type RunResult } from "../primitives/supervisor.js";
 import { DATA, GENERATIONS, LINEAGE, ROOT, SRC } from "../primitives/paths.js";
 
 const MOLT_DIR = join(DATA, ".molt");
@@ -112,11 +121,106 @@ export type TestMoltArgs = {
   noOutputTimeoutMs?: number;
 };
 
+// Simplicity — autoagent principle: "all else being equal, simpler is better".
+// We don't block a molt for failing the simplicity check, but we surface the
+// delta so the agent (and the human reading lineage.md later) can see whether
+// the shell is growing or shrinking. Negative delta = fewer lines/files = simpler.
+export type SimplicityDelta = {
+  lineCountBefore: number;
+  lineCountAfter: number;
+  fileCountBefore: number;
+  fileCountAfter: number;
+  linesDelta: number;
+  filesDelta: number;
+  simpler: boolean;
+};
+
+export type TestIsolation = "docker" | "host";
+
 export type TestResult = {
   healthy: boolean;
   health?: Health;
   run: RunResult;
+  simplicity: SimplicityDelta;
+  isolation: TestIsolation;
 };
+
+// Docker image built from the project Dockerfile. The molt test mounts the
+// candidate src/ into /agent/src (read-only) and the parent body into
+// /agent/data (read-write for health.json), then runs `self-test` inside.
+//
+// `--network none` blocks outgoing network so the candidate can't exfiltrate
+// or phone home during test. The real agent gets network in normal runs;
+// this is only to isolate the unverified candidate.
+const MOLT_IMAGE = "autonomous-agent:latest";
+
+function buildDockerRunArgs(args: {
+  generationId: string;
+  generationDir: string;
+  realDataDir: string;
+  healthFileContainer: string;
+}): string[] {
+  return [
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--tmpfs",
+    "/tmp:rw,size=64m",
+    // The candidate shell's src/ — mounted read-only at /agent/src.
+    "-v",
+    `${join(args.generationDir, "src")}:/agent/src:ro`,
+    // The real body — mounted read-write at /agent/data.
+    "-v",
+    `${args.realDataDir}:/agent/data`,
+    "-e",
+    `MOLT_HEALTH_FILE=${args.healthFileContainer}`,
+    "-e",
+    `MOLT_GENERATION_ID=${args.generationId}`,
+    "-e",
+    "AGENT_ROOT=/agent",
+    "-e",
+    "AGENT_DATA_DIR=/agent/data",
+    // Explicitly DO NOT forward ANTHROPIC_API_KEY or OAuth creds — the
+    // self-test does not need to call the LLM and we don't want an untested
+    // shell to have access to our credentials. If it tries to call the LLM,
+    // it will fail, and that's fine.
+    MOLT_IMAGE,
+    "self-test",
+    args.generationId,
+  ];
+}
+
+async function countCodeLines(dir: string): Promise<{ lines: number; files: number }> {
+  let lines = 0;
+  let files = 0;
+  async function walk(path: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(path, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const full = join(path, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+      } else if (entry.isFile() && /\.(ts|md)$/.test(entry.name)) {
+        files += 1;
+        try {
+          const text = await readFile(full, "utf-8");
+          lines += text.split("\n").length;
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
+  await walk(dir);
+  return { lines, files };
+}
 
 export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
   const generationDir = join(GENERATIONS, args.generationId);
@@ -135,21 +239,47 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
     // ok
   }
 
-  const run = await spawnSupervised({
-    script: relative(ROOT, candidateCli),
-    args: ["self-test", args.generationId],
-    overallTimeoutMs: args.overallTimeoutMs ?? 60_000,
-    noOutputTimeoutMs: args.noOutputTimeoutMs ?? 30_000,
-    env: {
-      MOLT_HEALTH_FILE: HEALTH_FILE,
-      MOLT_GENERATION_ID: args.generationId,
-      // Critical — B lives in generations/<id>/src/ but its body is the
-      // parent's data/. Without these, B's paths.ts would resolve DATA to
-      // generations/<id>/data/ which doesn't exist.
-      AGENT_ROOT: ROOT,
-      AGENT_DATA_DIR: join(ROOT, "data"),
-    },
-  }).wait();
+  const realDataDir = join(ROOT, "data");
+
+  // Prefer Docker for real isolation. Fall back to host spawn only if Docker
+  // isn't available — that's the old behavior and is strictly less safe.
+  let run: RunResult;
+  let isolation: TestIsolation;
+
+  if (isDockerAvailable()) {
+    isolation = "docker";
+    // Inside the container, the health file is at /agent/data/.molt/health.json.
+    // From the host, that's the same file via the volume mount (data/.molt/health.json).
+    const healthFileContainer = "/agent/data/.molt/health.json";
+    run = await spawnSupervised({
+      cmd: "docker",
+      cmdArgs: buildDockerRunArgs({
+        generationId: args.generationId,
+        generationDir,
+        realDataDir,
+        healthFileContainer,
+      }),
+      overallTimeoutMs: args.overallTimeoutMs ?? 120_000,
+      noOutputTimeoutMs: args.noOutputTimeoutMs ?? 60_000,
+    }).wait();
+  } else {
+    isolation = "host";
+    run = await spawnSupervised({
+      script: relative(ROOT, candidateCli),
+      args: ["self-test", args.generationId],
+      overallTimeoutMs: args.overallTimeoutMs ?? 60_000,
+      noOutputTimeoutMs: args.noOutputTimeoutMs ?? 30_000,
+      env: {
+        MOLT_HEALTH_FILE: HEALTH_FILE,
+        MOLT_GENERATION_ID: args.generationId,
+        // Critical — B lives in generations/<id>/src/ but its body is the
+        // parent's data/. Without these, B's paths.ts would resolve DATA to
+        // generations/<id>/data/ which doesn't exist.
+        AGENT_ROOT: ROOT,
+        AGENT_DATA_DIR: realDataDir,
+      },
+    }).wait();
+  }
 
   let health: Health | undefined;
   try {
@@ -160,7 +290,21 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
   }
 
   const healthy = !!health?.healthy && run.exitCode === 0;
-  return { healthy, health, run };
+
+  // Simplicity delta — compare current SRC with the candidate generation src.
+  const currentCounts = await countCodeLines(SRC);
+  const candidateCounts = await countCodeLines(join(generationDir, "src"));
+  const simplicity: SimplicityDelta = {
+    lineCountBefore: currentCounts.lines,
+    lineCountAfter: candidateCounts.lines,
+    fileCountBefore: currentCounts.files,
+    fileCountAfter: candidateCounts.files,
+    linesDelta: candidateCounts.lines - currentCounts.lines,
+    filesDelta: candidateCounts.files - currentCounts.files,
+    simpler: candidateCounts.lines < currentCounts.lines,
+  };
+
+  return { healthy, health, run, simplicity, isolation };
 }
 
 // ── 3. Queue a swap ─────────────────────────────────────────────────────

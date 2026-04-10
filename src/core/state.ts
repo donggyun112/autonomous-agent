@@ -1,3 +1,10 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// Changing the state machine or sleep pressure model is a core change.
+// It must go through the molt protocol, not manage_self.
+// ===========================================================================
+//
 // The agent's three states of being.
 //
 // These were given as a beginning. The agent may, over time, change them

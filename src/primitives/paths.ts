@@ -1,3 +1,11 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// The geographic constants define what the agent considers its body and
+// shell. Changing them without a molt would desynchronize the running shell
+// from the body it is pointing at.
+// ===========================================================================
+//
 // The agent's geography. These are the only fixed locations the shell knows about.
 // data/ is body. src/ is shell. generations/ holds past shells.
 //

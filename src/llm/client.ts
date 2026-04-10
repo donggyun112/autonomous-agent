@@ -1,3 +1,12 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// The inner-voice layer. The agent's think() entry point. OAuth and API key
+// detection, system prompt construction, header injection all live here.
+// Wrong changes here are very hard to recover from — the agent loses speech.
+// Must go through molt.
+// ===========================================================================
+
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "dotenv";
 import { getAuthSource } from "./auth/source.js";

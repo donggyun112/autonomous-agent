@@ -1,3 +1,14 @@
+// ===========================================================================
+// FIXED BOUNDARY — full molt required to change this file
+// ===========================================================================
+// This file implements the agent's main life-loop. Changing it is not a
+// light modification. If you want to alter how a cycle runs, stage a new
+// shell in generations/<id>/src/ with the modified cycle.ts and verify it
+// through the molt protocol (stageMolt → testMolt → molt_swap).
+//
+// The light-molt tool (manage_self) cannot reach this file. This is intentional.
+// ===========================================================================
+//
 // One cycle of the agent's life.
 //
 // A cycle is a single turn-loop in the current mode. The agent calls tools,

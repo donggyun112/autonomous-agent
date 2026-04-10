@@ -395,7 +395,7 @@ const moltTestTool: Tool = {
   def: {
     name: "molt_test",
     description:
-      "Test a staged candidate shell. Spawns the candidate's cli.ts in self-test mode, watches it with a 60s overall timeout and 30s no-output timeout. The candidate must boot, read whoAmI/state, and write a health file. Returns whether B is healthy. If healthy, you may call molt_swap.",
+      "Test a staged candidate shell. Spawns the candidate inside an isolated Docker container (falls back to supervised host subprocess only if Docker is unavailable). Watches with a 60s overall timeout and 30s no-output timeout. The candidate must boot, read whoAmI/state, and write a health file. Also reports a simplicity delta (lines/files before vs after). If healthy, you may call molt_swap. Remember: equal capability with fewer lines is a real improvement — simpler wins.",
     input_schema: {
       type: "object",
       properties: {
@@ -411,6 +411,7 @@ const moltTestTool: Tool = {
     return JSON.stringify(
       {
         healthy: result.healthy,
+        simplicity: result.simplicity,
         run: {
           reason: result.run.reason,
           exitCode: result.run.exitCode,

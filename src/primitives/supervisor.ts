@@ -18,6 +18,9 @@
 import { spawn, type ChildProcess } from "child_process";
 import { resolve, relative } from "path";
 import { ROOT } from "./paths.js";
+// NOTE: execSync is used only for isDockerAvailable() which is a cheap
+// capability probe, not for actual execution.
+import { execSync } from "child_process";
 
 export type RunState = "starting" | "running" | "exiting" | "exited";
 
@@ -51,8 +54,14 @@ export type RunResult = {
 };
 
 export type SpawnInput = {
-  // Path to a script inside the agent's world. Validated against ROOT.
-  script: string;
+  // Either pass `script` (a tsx-runnable path inside the agent's world) OR
+  // pass `cmd` + `cmdArgs` to run an arbitrary command. Script mode was the
+  // original shape; cmd mode was added so the molt protocol can spawn
+  // `docker run ...` as a child process with the same supervision primitives.
+  script?: string;
+  cmd?: string;
+  cmdArgs?: string[];
+  // Additional args appended after the script path (script mode only).
   args?: string[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -79,11 +88,43 @@ function nextRunId(): string {
   return `run-${Date.now()}-${++_runIdCounter}`;
 }
 
+// Probe whether `docker` is callable. Cheap — `docker version` exits fast if
+// the daemon is reachable, otherwise quickly errors. Cached so we don't
+// re-probe every molt test.
+let _dockerAvailable: boolean | null = null;
+export function isDockerAvailable(): boolean {
+  if (_dockerAvailable !== null) return _dockerAvailable;
+  try {
+    execSync("docker version --format '{{.Server.Version}}'", {
+      stdio: "ignore",
+      timeout: 3000,
+    });
+    _dockerAvailable = true;
+  } catch {
+    _dockerAvailable = false;
+  }
+  return _dockerAvailable;
+}
+
 export function spawnSupervised(input: SpawnInput): ManagedRun {
-  const scriptAbs = resolve(ROOT, input.script);
-  const rel = relative(ROOT, scriptAbs);
-  if (rel.startsWith("..")) {
-    throw new Error(`spawn: script outside of self: ${input.script}`);
+  // Resolve the command. Two modes:
+  //   1. script mode: run `npx tsx <script>` inside ROOT (legacy)
+  //   2. cmd mode: run arbitrary `<cmd> <args>` (used by docker-based molt test)
+  let command: string;
+  let cmdArgs: string[];
+  if (input.cmd) {
+    command = input.cmd;
+    cmdArgs = input.cmdArgs ?? [];
+  } else if (input.script) {
+    const scriptAbs = resolve(ROOT, input.script);
+    const rel = relative(ROOT, scriptAbs);
+    if (rel.startsWith("..")) {
+      throw new Error(`spawn: script outside of self: ${input.script}`);
+    }
+    command = "npx";
+    cmdArgs = ["tsx", scriptAbs, ...(input.args ?? [])];
+  } else {
+    throw new Error("spawn: must provide either `script` or `cmd`");
   }
 
   const runId = nextRunId();
@@ -105,16 +146,11 @@ export function spawnSupervised(input: SpawnInput): ManagedRun {
   let overallTimer: NodeJS.Timeout | null = null;
   let noOutputTimer: NodeJS.Timeout | null = null;
 
-  // Spawn the child via tsx so source files run directly.
-  const child: ChildProcess = spawn(
-    "npx",
-    ["tsx", scriptAbs, ...(input.args ?? [])],
-    {
-      cwd: input.cwd ?? ROOT,
-      env: { ...process.env, ...input.env },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const child: ChildProcess = spawn(command, cmdArgs, {
+    cwd: input.cwd ?? ROOT,
+    env: { ...process.env, ...input.env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   record.pid = child.pid;
   record.state = "running";

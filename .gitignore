@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.log
+
+# Body — DO NOT commit. The agent's life is private.
+data/
+!data/.gitkeep
+
+# Generations — old shells. Optional commit decision.
+generations/
+!generations/.gitkeep
+
+# Vendored reference codebases (claude-code, openclaw, deepagents, pi-mono, super-memory,
+# agent-skills, autoagent, karpathy, papers). 678MB+ of other people's code — do not
+# commit. Fetched locally for study only. See docs/reference/ for analyses.
+reference/

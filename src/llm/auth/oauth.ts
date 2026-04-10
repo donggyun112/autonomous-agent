@@ -1,0 +1,83 @@
+// AuthSource backed by OAuth credentials stored on disk.
+//
+// Reads the credentials file, returns the access token if it is still valid,
+// or refreshes it via refreshAnthropicToken if expired. Refresh is guarded by
+// a per-provider lock so that concurrent callers don't race on single-use
+// refresh tokens (OAuth refresh tokens are invalidated by the authorization
+// server as soon as they are used once).
+//
+// Pattern borrowed from IN7PM's src/agent/auth.ts.
+
+import { refreshAnthropicToken } from "./anthropic.js";
+import { loadCredentials, saveAnthropicCredentials } from "./storage.js";
+import type { AuthSource, OAuthCredentials } from "./types.js";
+
+export class AnthropicOAuthSource implements AuthSource {
+  id = "anthropic-oauth";
+
+  // In-memory cache of the most recently loaded/refreshed credentials.
+  // Primed lazily on first getApiKey() call.
+  private cached: OAuthCredentials | null = null;
+  // Promise guard for concurrent refresh. Multiple cycles running in parallel
+  // (sleep consolidation + auto-compact + main loop) could all detect expiry
+  // at the same moment and each try to refresh — single-use refresh tokens
+  // would then invalidate each other. We serialize them behind one promise.
+  private refreshInFlight: Promise<OAuthCredentials> | null = null;
+
+  describe(): string {
+    return "Anthropic OAuth (Claude Pro/Max login)";
+  }
+
+  private async load(): Promise<OAuthCredentials | null> {
+    if (this.cached) return this.cached;
+    const all = await loadCredentials();
+    this.cached = all.anthropic ?? null;
+    return this.cached;
+  }
+
+  private isExpired(creds: OAuthCredentials): boolean {
+    // Refresh 5 minutes early to avoid racing the server's own clock.
+    return Date.now() >= creds.expires - 5 * 60 * 1000;
+  }
+
+  private async refresh(): Promise<OAuthCredentials> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+
+    const doRefresh = async (): Promise<OAuthCredentials> => {
+      // Re-read from disk in case another process updated the file.
+      const fresh = (await loadCredentials()).anthropic;
+      if (!fresh) {
+        throw new Error(
+          "No Anthropic OAuth credentials on disk. Run 'pnpm login' to authenticate.",
+        );
+      }
+      // If another process already refreshed while we were waiting, use theirs.
+      if (!this.isExpired(fresh)) {
+        this.cached = fresh;
+        return fresh;
+      }
+      const rotated = await refreshAnthropicToken(fresh.refresh);
+      await saveAnthropicCredentials(rotated);
+      this.cached = rotated;
+      return rotated;
+    };
+
+    this.refreshInFlight = doRefresh().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  async getApiKey(): Promise<string> {
+    let creds = await this.load();
+    if (!creds) {
+      throw new Error(
+        "No Anthropic OAuth credentials. Run 'pnpm login' to authenticate.",
+      );
+    }
+    if (this.isExpired(creds)) {
+      creds = await this.refresh();
+    }
+    return creds.access;
+  }
+}

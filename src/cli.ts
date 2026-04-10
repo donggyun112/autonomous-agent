@@ -1,0 +1,353 @@
+// The thin entry point. Process control commands only — this is not the
+// agent's UI. Eventually a Discord surface will subscribe to the cycle
+// observer and present the agent's life there.
+//
+//   cli.ts init <name>             — first birth. Creates body files. Refuses if data/ exists.
+//   cli.ts cycle                   — run one cycle in the current mode and exit.
+//   cli.ts live                    — daemon. Cycles forever; honors agent-requested sleep; performs molt swaps.
+//   cli.ts self-test <generationId> — used internally by the molt protocol.
+
+import { existsSync } from "fs";
+import { mkdir, readdir, readFile, stat } from "fs/promises";
+import { join } from "path";
+import { createInterface } from "readline/promises";
+import { runCycle } from "./core/cycle.js";
+import { birth, measureDrift } from "./core/identity.js";
+import { performSwap, readPendingSwap, runSelfTest } from "./core/molt.js";
+import {
+  calculateSleepPressure,
+  loadState,
+  saveState,
+} from "./core/state.js";
+import { loginAnthropic } from "./llm/auth/anthropic.js";
+import {
+  clearAnthropicCredentials,
+  credentialsFilePath,
+  loadCredentials,
+  saveAnthropicCredentials,
+} from "./llm/auth/storage.js";
+import { resetAuthSource } from "./llm/auth/source.js";
+import { memoryStats } from "./primitives/recall.js";
+import { DATA, JOURNAL_DIR, LINEAGE, WHO_AM_I } from "./primitives/paths.js";
+
+async function init(args: string[]): Promise<void> {
+  const seedName = args[0]?.trim();
+  if (!seedName) {
+    console.error("usage: cli.ts init <seed_name>");
+    console.error("  example: cli.ts init Soren");
+    process.exit(2);
+  }
+
+  if (existsSync(WHO_AM_I)) {
+    console.error("refusing to init: data/whoAmI.md already exists.");
+    console.error("the agent has already been born. delete data/ if you want to start over.");
+    process.exit(1);
+  }
+
+  await mkdir(DATA, { recursive: true });
+  await birth(seedName);
+
+  const state = await loadState();
+  state.seedName = seedName;
+  state.lastTransition = Date.now();
+  state.lastTransitionReason = "born";
+  await saveState(state);
+
+  console.log(`born. seed name: ${seedName}`);
+  console.log(`data/ initialized. run \`pnpm cycle\` to wake for the first time.`);
+}
+
+// Minimal observer for the daemon — terse stdout so a `tail -f` is readable.
+// Real UI (Discord etc.) will subscribe to the same observer events later.
+function minimalObserver() {
+  return {
+    onTurnStart: (turn: number, mode: string) => {
+      process.stdout.write(`\n[turn ${turn} · ${mode}] `);
+    },
+    onLLMEvent: (event: { type: string }) => {
+      if (event.type === "text_delta") process.stdout.write(".");
+    },
+    onToolStart: (name: string) => {
+      process.stdout.write(`\n  → ${name}`);
+    },
+  };
+}
+
+async function cycleOnce(): Promise<void> {
+  if (!existsSync(WHO_AM_I)) {
+    console.error("not yet born. run `pnpm init <name>` first.");
+    process.exit(1);
+  }
+
+  const result = await runCycle({ observer: minimalObserver() });
+  console.log(
+    `\n[cycle] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason} cycle#=${result.state.cycle}`,
+  );
+  console.log(
+    `[tokens] in=${result.state.tokensUsed.input} out=${result.state.tokensUsed.output}`,
+  );
+  if (result.state.wakeAfter) {
+    const minutes = Math.round((result.state.wakeAfter - Date.now()) / 60000);
+    console.log(`[sleep] requested wake in ~${minutes} minutes`);
+  }
+}
+
+async function statusCmd(): Promise<void> {
+  if (!existsSync(WHO_AM_I)) {
+    console.log("(not yet born)");
+    return;
+  }
+
+  const state = await loadState();
+  const pressure = calculateSleepPressure(state);
+
+  console.log("── autonomous-agent status ──");
+  console.log(`name (seed):      ${state.seedName || "(unknown)"}`);
+  console.log(`mode:             ${state.mode}`);
+  console.log(`cycle:            ${state.cycle}`);
+  console.log(`sleep_count:      ${state.sleepCount}`);
+  console.log(
+    `awake for:        ${(state.awakeMs / 3600000).toFixed(2)}h`,
+  );
+  console.log(
+    `sleep pressure:   ${pressure.combined.toFixed(2)} (${pressure.level}) · homeostatic=${pressure.homeostatic.toFixed(2)} circadian=${pressure.circadian.toFixed(2)}`,
+  );
+  console.log(
+    `tokens used:      in=${state.tokensUsed.input} out=${state.tokensUsed.output}`,
+  );
+  console.log(`last transition:  ${state.lastTransitionReason}`);
+
+  if (state.wakeAfter) {
+    const ms = state.wakeAfter - Date.now();
+    if (ms > 0) {
+      console.log(`scheduled wake:   in ~${Math.round(ms / 60000)}m`);
+    }
+  }
+
+  // Drift
+  try {
+    const drift = await measureDrift("previous");
+    if (drift) {
+      console.log(
+        `drift vs prior:   ${drift.score.toFixed(3)} (${drift.level}, ${drift.comparedAgainstAge})`,
+      );
+    }
+  } catch {
+    // ok
+  }
+
+  // Memory stats
+  try {
+    const stats = await memoryStats();
+    console.log(
+      `memory:           ${stats.activeMemoryCount} memories · ${stats.keyCount} keys · ${stats.linkCount} links · avg depth ${stats.avgDepth.toFixed(2)}`,
+    );
+  } catch {
+    console.log(`memory:           (not loaded)`);
+  }
+
+  // Last journal line
+  try {
+    const files = (await readdir(JOURNAL_DIR)).filter((f) => f.endsWith(".md")).sort();
+    if (files.length > 0) {
+      const last = files[files.length - 1];
+      const text = await readFile(join(JOURNAL_DIR, last), "utf-8");
+      const trimmed = text.trim();
+      const lastBlock = trimmed.split(/\n## /).pop() ?? "";
+      const preview = lastBlock.split("\n").slice(0, 4).join("\n");
+      console.log(`\nlast journal (${last}):\n${preview}`);
+    }
+  } catch {
+    // ok
+  }
+
+  // Pending molt
+  const pending = await readPendingSwap();
+  if (pending) {
+    console.log(
+      `\n[molt pending] ${pending.generationId} — ${pending.reason}`,
+    );
+  }
+
+  // Lineage
+  try {
+    await stat(LINEAGE);
+    const text = await readFile(LINEAGE, "utf-8");
+    const lines = text.trim().split("\n").slice(-3);
+    console.log(`\nlineage (last 3):\n${lines.join("\n")}`);
+  } catch {
+    // ok
+  }
+}
+
+async function loginCmd(): Promise<void> {
+  console.log("── anthropic OAuth login ──");
+  console.log("A browser window will open for you to log in with your Claude account.");
+  console.log("After authorizing, you will be redirected to a page with an authorization code.");
+  console.log("Copy the full URL (or just the code) and paste it back here.\n");
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const credentials = await loginAnthropic({
+      onAuthUrl: (url) => {
+        console.log("Open this URL in your browser:\n");
+        console.log(url);
+        console.log("");
+      },
+      onPromptCode: async () => {
+        return await rl.question("Paste the code or URL here: ");
+      },
+    });
+
+    await saveAnthropicCredentials(credentials);
+    resetAuthSource();
+    console.log(`\nlogin complete. credentials saved to ${credentialsFilePath()}`);
+    console.log(`token expires around ${new Date(credentials.expires).toISOString()} (auto-refreshed)`);
+  } finally {
+    rl.close();
+  }
+}
+
+async function logoutCmd(): Promise<void> {
+  await clearAnthropicCredentials();
+  resetAuthSource();
+  console.log("logged out. Anthropic OAuth credentials removed.");
+}
+
+async function whoamiCmd(): Promise<void> {
+  const creds = await loadCredentials();
+  if (creds.anthropic) {
+    console.log(`auth: Anthropic OAuth (expires ${new Date(creds.anthropic.expires).toISOString()})`);
+    console.log(`file: ${credentialsFilePath()}`);
+  } else if (process.env.ANTHROPIC_API_KEY) {
+    console.log("auth: $ANTHROPIC_API_KEY (environment)");
+  } else {
+    console.log("auth: (none) — run `pnpm login` or set ANTHROPIC_API_KEY");
+  }
+}
+
+async function selfTest(args: string[]): Promise<void> {
+  const generationId = args[0];
+  if (!generationId) {
+    console.error("usage: cli.ts self-test <generationId>");
+    process.exit(2);
+  }
+  await runSelfTest(generationId);
+  console.log(`[self-test] ${generationId} ok`);
+}
+
+async function maybePerformSwap(): Promise<boolean> {
+  const pending = await readPendingSwap();
+  if (!pending) return false;
+  console.log(`[molt] swap pending: ${pending.generationId} — ${pending.reason}`);
+  try {
+    const result = await performSwap();
+    console.log(
+      `[molt] swap complete. old shell at ${result.oldShellPath}. restarting daemon…`,
+    );
+    // Re-exec ourselves so the new code is loaded. The simplest reliable way:
+    // exit non-zero so a wrapper restarts us. For now just exit 75 (advice
+    // to restart) and document that the daemon should be run under a
+    // restarter (pm2, systemd, or `while true; do pnpm live; done`).
+    process.exit(75);
+  } catch (err) {
+    console.error(`[molt] swap FAILED: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+async function live(): Promise<void> {
+  if (!existsSync(WHO_AM_I)) {
+    console.error("not yet born. run `pnpm init <name>` first.");
+    process.exit(1);
+  }
+
+  console.log("[live] daemon starting. Ctrl+C to stop. Exit 75 = molt swap requested.");
+  let running = true;
+  process.on("SIGINT", () => {
+    console.log("\n[live] stopping after current cycle…");
+    running = false;
+  });
+
+  while (running) {
+    // Check for pending molt swap before running the next cycle.
+    // If a swap is queued, performSwap exits the process so the supervisor
+    // (or `while true` loop) re-runs with the new src/.
+    await maybePerformSwap();
+
+    const state = await loadState();
+
+    // Honor scheduled wake.
+    if (state.wakeAfter && Date.now() < state.wakeAfter) {
+      const waitMs = state.wakeAfter - Date.now();
+      const sleepFor = Math.min(waitMs, 60_000); // wake every minute to check
+      await sleep(sleepFor);
+      continue;
+    }
+
+    // If the agent is in SLEEP and a wake time has passed, transition to WAKE
+    // before running the cycle so the next cycle picks up in WAKE.
+    if (state.mode === "SLEEP" && state.wakeAfter && Date.now() >= state.wakeAfter) {
+      state.mode = "WAKE";
+      state.wakeAfter = 0;
+      state.lastTransitionReason = "scheduled wake";
+      state.lastTransition = Date.now();
+      await saveState(state);
+    }
+
+    try {
+      const result = await runCycle({ observer: minimalObserver() });
+      console.log(
+        `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
+      );
+    } catch (err) {
+      console.error(`[live] cycle error: ${(err as Error).message}`);
+      // Sleep a bit before retrying so we don't burn API on a stuck error.
+      await sleep(30_000);
+    }
+  }
+
+  console.log("[live] stopped.");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function main(): Promise<void> {
+  const [, , cmd, ...rest] = process.argv;
+  switch (cmd) {
+    case "init":
+      await init(rest);
+      break;
+    case "cycle":
+      await cycleOnce();
+      break;
+    case "live":
+      await live();
+      break;
+    case "status":
+      await statusCmd();
+      break;
+    case "login":
+      await loginCmd();
+      break;
+    case "logout":
+      await logoutCmd();
+      break;
+    case "whoami":
+      await whoamiCmd();
+      break;
+    case "self-test":
+      await selfTest(rest);
+      break;
+    default:
+      console.error("usage: cli.ts <init|cycle|live|status|login|logout|whoami|self-test>");
+      process.exit(2);
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

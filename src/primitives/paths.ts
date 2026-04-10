@@ -53,3 +53,13 @@ export const JOURNAL_DIR = join(DATA, "journal");
 export const MEMORY_FILE = join(DATA, "memory.json");
 export const STATE_FILE = join(DATA, "state.json");
 export const LINEAGE = join(DATA, "lineage.md");
+
+// LLM Wiki — the agent's self-maintained knowledge base.
+// Pattern from Karpathy's LLM Wiki: journal/memory are raw sources, wiki is
+// the synthesized, cross-referenced layer the agent compiles during SLEEP.
+export const WIKI_DIR = join(DATA, "wiki");
+export const WIKI_INDEX = join(WIKI_DIR, "index.md");
+export const WIKI_LOG = join(WIKI_DIR, "log.md");
+export const WIKI_CONCEPTS_DIR = join(WIKI_DIR, "concepts");
+export const WIKI_ENTITIES_DIR = join(WIKI_DIR, "entities");
+export const WIKI_SELF = join(WIKI_DIR, "self.md");

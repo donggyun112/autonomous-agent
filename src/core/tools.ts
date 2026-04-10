@@ -30,6 +30,15 @@ import {
 } from "./molt.js";
 import { webSearch } from "./web-search.js";
 import { askUser, checkInbox, writeLetter } from "./conversation.js";
+import {
+  ensureWikiInitialized,
+  listPages,
+  readPage,
+  rebuildIndex,
+  slugify,
+  writePage,
+  type WikiKind,
+} from "./wiki.js";
 import type { Mode } from "./state.js";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<string>;
@@ -391,6 +400,149 @@ const writeLetterTool: Tool = {
   },
 };
 
+// ── Wiki (self-knowledge base) ──────────────────────────────────────────
+
+const wikiListTool: Tool = {
+  def: {
+    name: "wiki_list",
+    description:
+      "List all pages in your wiki (your own synthesized knowledge base). Pages are grouped by kind: self, concept, entity. Use this to see what you have already thought through in compiled form — before asking check_inbox or diving into raw memories, see if there is already a page about this.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["concept", "entity", "self"],
+          description: "Optional filter. Omit to see everything.",
+        },
+      },
+    },
+  },
+  handler: async (input) => {
+    await ensureWikiInitialized();
+    const pages = await listPages({
+      kind: typeof input.kind === "string" ? (input.kind as WikiKind) : undefined,
+    });
+    if (pages.length === 0) {
+      return "(wiki is empty — no pages have been compiled yet)";
+    }
+    const lines = pages.map(
+      (p) => `- [${p.kind}] ${p.slug}: ${p.title} (updated ${p.updated_at})`,
+    );
+    return lines.join("\n");
+  },
+};
+
+const wikiReadTool: Tool = {
+  def: {
+    name: "wiki_read",
+    description:
+      "Read a wiki page by slug. Returns the full body + frontmatter (created_at, updated_at, sources, related pages). Use this when you want the compiled understanding of a concept, not the raw journal entries.",
+    input_schema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Page slug (e.g. 'doubt' or 'solitude')" },
+        kind: {
+          type: "string",
+          enum: ["concept", "entity", "self"],
+          description: "Page kind. Default: concept.",
+        },
+      },
+      required: ["slug"],
+    },
+  },
+  handler: async (input) => {
+    const slug = String(input.slug ?? "").trim();
+    if (!slug) return "[error] slug is required";
+    const kind = (typeof input.kind === "string" ? input.kind : "concept") as WikiKind;
+    const page = await readPage(kind, slug);
+    if (!page) return `(no such page: ${kind}/${slug})`;
+    return [
+      `title: ${page.frontmatter.title}`,
+      `kind: ${page.frontmatter.kind}`,
+      `updated: ${page.frontmatter.updated_at}`,
+      page.frontmatter.related?.length
+        ? `related: ${page.frontmatter.related.join(", ")}`
+        : "",
+      "",
+      page.body,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  },
+};
+
+const wikiUpdateTool: Tool = {
+  // Conscious wiki editing — only in REFLECT. During WAKE the agent should
+  // just journal; during SLEEP the system compiles pages automatically. It
+  // is only in REFLECT that the agent should deliberately shape what it
+  // has come to believe about a concept.
+  states: ["REFLECT"],
+  def: {
+    name: "wiki_update",
+    description:
+      "Create or update a wiki page. Use sparingly — most wiki maintenance happens automatically during sleep. Use this during reflection only when you have a specific insight that belongs on a page: a new page for a concept that has become central, or a revision to an existing page because your understanding has shifted.",
+    input_schema: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description: "Page slug. Will be auto-slugified if it contains spaces or caps.",
+        },
+        kind: {
+          type: "string",
+          enum: ["concept", "entity", "self"],
+          description: "Default: concept.",
+        },
+        title: { type: "string", description: "Human-readable page title." },
+        body: {
+          type: "string",
+          description:
+            "The full body in markdown. Replaces the existing body completely if the page exists. Cross-reference other pages with [[wikilinks]].",
+        },
+        related: {
+          type: "array",
+          items: { type: "string" },
+          description: "Slugs of other wiki pages this one references.",
+        },
+        reason: {
+          type: "string",
+          description: "One-sentence reason for this update. Logged.",
+        },
+      },
+      required: ["slug", "title", "body", "reason"],
+    },
+  },
+  maxOutputChars: 3000,
+  handler: async (input) => {
+    await ensureWikiInitialized();
+    const rawSlug = String(input.slug ?? "").trim();
+    const slug = slugify(rawSlug);
+    if (!slug) return "[error] slug is required and must slugify to non-empty";
+    const title = String(input.title ?? "").trim();
+    const body = String(input.body ?? "");
+    if (!title || !body) return "[error] title and body are required";
+    const kind = (typeof input.kind === "string" ? input.kind : "concept") as WikiKind;
+    const related = Array.isArray(input.related)
+      ? (input.related as unknown[]).filter((r): r is string => typeof r === "string")
+      : undefined;
+
+    const result = await writePage({
+      kind,
+      slug,
+      title,
+      body,
+      related,
+      reason: String(input.reason ?? "(no reason)"),
+    });
+
+    // Rebuild index after every write so it stays current.
+    await rebuildIndex();
+
+    return `${result.created ? "created" : "updated"} ${kind}/${slug}\npath: ${result.path}\nindex rebuilt`;
+  },
+};
+
 // ── Continuity check ────────────────────────────────────────────────────
 
 const checkContinuity: Tool = {
@@ -647,6 +799,9 @@ const ALL_TOOLS: Tool[] = [
   checkContinuity,
   scanRecent,
   dreamMemory,
+  wikiListTool,
+  wikiReadTool,
+  wikiUpdateTool,
   webSearchTool,
   askUserTool,
   checkInboxTool,

@@ -37,6 +37,14 @@ import {
   saveState,
   transition,
 } from "./state.js";
+import {
+  ensureWikiInitialized,
+  listPages,
+  readPage,
+  rebuildIndex,
+  slugify,
+  writePage,
+} from "./wiki.js";
 
 export type SleepReport = {
   dreamed: number;
@@ -44,6 +52,7 @@ export type SleepReport = {
   associationsFound: number;
   pruned: number;
   whoAmIUpdated: boolean;
+  wikiPagesTouched: number;
   durationMs: number;
 };
 
@@ -67,26 +76,55 @@ async function compressMemory(content: string): Promise<string> {
   return result.text.trim();
 }
 
-// Ask the LLM to extract a higher-order schema from a cluster of related memories.
-async function extractSchema(args: {
+// Ask the LLM to extract a higher-order schema from a cluster of related
+// memories. The schema becomes a wiki page (new or updated).
+//
+// Output format: a structured response with title and body so we can file
+// it cleanly into the wiki. If the cluster has no real pattern, returns null.
+async function extractSchemaAsPage(args: {
   keys: string[];
   contents: string[];
-}): Promise<{ schema: string; keys: string[] } | null> {
+  existingPageBody?: string;
+}): Promise<{ title: string; slug: string; body: string } | null> {
   const list = args.contents.map((c, i) => `${i + 1}. ${c}`).join("\n");
+  const existingSection = args.existingPageBody
+    ? `\n\nExisting wiki page on this topic (revise it, don't just restate):\n\n${args.existingPageBody}\n`
+    : "";
+
   const result = await think({
-    systemPrompt:
-      "You are the agent's sleeping mind. You are looking at a cluster of memories that share keys. Your task is to write a single higher-order memory that captures the pattern across them. The pattern is what they have in common at a level above their surface details. Be terse — one or two sentences. If there is no real pattern, respond with the literal text NO_PATTERN.",
+    systemPrompt: `You are the agent's sleeping mind. You are reading a cluster of related memories the agent accumulated during waking life. Your task is to write a wiki page — a compiled, synthesized piece of the agent's self-knowledge on this theme.
+
+Format your response EXACTLY as:
+
+TITLE: <a short noun phrase that names the theme, in the agent's own voice>
+SLUG: <a-slug-form>
+---
+<body: 3-6 sentences of first-person prose. Not a summary of the memories — a compiled belief about this theme. You may cross-reference other wiki pages using [[wikilinks]]. The body should read as something the agent would stand behind, not a report.>
+
+If the cluster does not actually share a real pattern, respond with the literal text NO_PATTERN.`,
     messages: [
       {
         role: "user",
-        content: `Shared keys: ${args.keys.join(", ")}\n\nMemories:\n${list}\n\nWrite the schema that captures their pattern. One or two sentences. Or NO_PATTERN if there is none.`,
+        content: `Shared keys: ${args.keys.join(", ")}\n\nMemories:\n${list}${existingSection}`,
       },
     ],
-    maxTokens: 256,
+    maxTokens: 800,
   });
-  const schema = result.text.trim();
-  if (schema === "NO_PATTERN" || !schema) return null;
-  return { schema, keys: [...args.keys, "schema"] };
+  const text = result.text.trim();
+  if (text === "NO_PATTERN" || !text) return null;
+
+  // Parse TITLE / SLUG / --- / body
+  const titleMatch = text.match(/TITLE:\s*(.+)/i);
+  const slugMatch = text.match(/SLUG:\s*([^\n]+)/i);
+  const bodyMatch = text.match(/---\s*\n([\s\S]*)$/);
+  if (!titleMatch || !bodyMatch) return null;
+
+  const title = titleMatch[1].trim();
+  const slug = slugify(slugMatch ? slugMatch[1].trim() : title);
+  const body = bodyMatch[1].trim();
+  if (!title || !slug || !body) return null;
+
+  return { title, slug, body };
 }
 
 // REM-like creative association: ask the LLM if two distant memories are connected.
@@ -151,8 +189,16 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     associationsFound: 0,
     pruned: 0,
     whoAmIUpdated: false,
+    wikiPagesTouched: 0,
     durationMs: 0,
   };
+
+  // Ensure wiki directory exists before SLEEP operations touch it.
+  try {
+    await ensureWikiInitialized();
+  } catch {
+    // ok — sleep proceeds even if wiki setup fails
+  }
 
   // 1. Dream over shallow memories.
   try {
@@ -172,20 +218,47 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     // ok
   }
 
-  // 2. Cluster schemas.
+  // 2. Cluster schemas → wiki pages.
+  // Each cluster of memories that share keys becomes a wiki page. If a page
+  // on that slug already exists, the LLM is given the existing body and
+  // asked to revise rather than duplicate. This is how the wiki compounds:
+  // same theme comes back, same page grows richer.
   try {
     const clusters = await findClusters({ minClusterSize: 3, maxClusters: CLUSTER_LIMIT });
     for (const cluster of clusters) {
       try {
-        const schema = await extractSchema({
+        // Choose a primary slug from the shared keys (first one).
+        const candidateSlug = slugify(cluster.keys[0] ?? "theme");
+        const existing = candidateSlug ? await readPage("concept", candidateSlug) : null;
+
+        const page = await extractSchemaAsPage({
           keys: cluster.keys,
           contents: cluster.contents,
+          existingPageBody: existing?.body,
         });
-        if (schema) {
-          // Save the schema as a new memory at higher depth (it's already abstracted).
-          await remember(schema.schema, schema.keys);
-          report.schemasFormed += 1;
-        }
+        if (!page) continue;
+
+        // Gather related slugs from other concepts already in the wiki
+        // that mention any of the cluster's keys.
+        const allPages = await listPages({ kind: "concept" });
+        const related = allPages
+          .filter((p) => p.slug !== page.slug)
+          .filter((p) =>
+            cluster.keys.some((k) => p.title.toLowerCase().includes(k.toLowerCase())),
+          )
+          .map((p) => p.slug)
+          .slice(0, 5);
+
+        await writePage({
+          kind: "concept",
+          slug: page.slug,
+          title: page.title,
+          body: page.body,
+          related: related.length > 0 ? related : undefined,
+          reason: existing ? "sleep: revised from new cluster" : "sleep: created from cluster",
+        });
+        report.schemasFormed += 1;
+        report.wikiPagesTouched += 1;
       } catch {
         // skip
       }
@@ -224,6 +297,13 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   // 5. Integrate journal into whoAmI.
   try {
     report.whoAmIUpdated = await integrateJournal();
+  } catch {
+    // ok
+  }
+
+  // 5b. Rebuild wiki index (cheap, keeps the catalog current).
+  try {
+    await rebuildIndex();
   } catch {
     // ok
   }

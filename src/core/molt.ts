@@ -6,38 +6,48 @@
 // that the current (working) protocol carries out, with extra care.
 // ===========================================================================
 //
-// MOLT — full molt protocol
+// MOLT — image-based full molt protocol (the real soraghe).
 //
-// The agent's hardest, rarest operation: building a new shell (B) inside the
-// running shell (A), verifying it boots and recognizes itself as continuous
-// with the body, and then atomically swapping. The body (data/) never moves;
-// only the shell (src/) is replaced.
+// The shell is not the `src/` directory. The shell is the entire Docker
+// IMAGE: base OS, Node runtime, installed dependencies, source code. When
+// the agent molts, it does not shuffle files — it builds a new image and
+// migrates into it.
 //
-// Why this is risky: if the new shell is broken and we swap before noticing,
-// the next process can't even read its own state. The agent dies.
+// Flow:
 //
-// Why this is safe (the soraghe protocol):
-//   1. A copies its current src/ to generations/<ts>/src/
-//   2. A applies the proposed change inside that copy (in extensions or core)
-//   3. A spawns the candidate B as a subprocess in *test* mode
-//   4. B boots, reads data/whoAmI.md, performs a self-test, writes a health file
-//   5. The supervisor watches with two timers (overall + no-output)
-//   6. If B reports healthy, A queues a swap by writing data/.molt/swap-pending
-//   7. The next time the daemon comes back to top-level, it performs the swap
-//      atomically: rename current src to generations/<ts>/old, rename
-//      generations/<ts>/src to src, restart the daemon process
-//   8. New A boots from new src/, reads body, finds molt complete, records lineage
+//   1. stageMolt(reason, patch?)
+//      - copies the full build context (src/, package.json, pnpm-lock.yaml,
+//        tsconfig.json, Dockerfile) from the current project into
+//        generations/<id>/
+//      - applies any patches to any of those files
+//      - runs `docker build -t autonomous-agent:<id> generations/<id>/`
+//      - writes intent.md
+//      - returns { generationId, imageTag, filesPatched }
 //
-// If anything fails between steps, the new shell is discarded and the old
-// shell continues running. The agent does not die.
+//   2. testMolt(generationId)
+//      - runs `docker run --rm --network none -v data:/agent/data
+//              autonomous-agent:<id> self-test <id>`
+//      - the candidate boots in its NEW image, reads the real body, writes
+//        a health file, exits
+//      - A is still running untouched in its current container
+//      - returns { healthy, run, simplicity, health }
+//
+//   3. molt_swap(generationId, reason)
+//      - retags images: current → previous-<ts>, <id> → current
+//      - writes lineage entry
+//      - writes data/.molt/swap-pending.json (informational, not required
+//        for swap — compose restart policy + the new :current tag do the
+//        work)
+//      - exits 75 — compose auto-restarts, picks up the new :current image
+//
+// The agent needs docker CLI + /var/run/docker.sock mounted to do any of
+// this. See Dockerfile and docker-compose.yml.
 
 import {
-  copyFile,
   cp,
   mkdir,
   readdir,
   readFile,
-  rename,
   rm,
   stat,
   writeFile,
@@ -50,81 +60,19 @@ const MOLT_DIR = join(DATA, ".molt");
 const SWAP_PENDING = join(MOLT_DIR, "swap-pending.json");
 const HEALTH_FILE = join(MOLT_DIR, "health.json");
 
-type SwapPending = {
-  generationId: string;
-  generationDir: string; // absolute path
-  declaredAt: string; // ISO
-  reason: string;
-};
+// The rolling tag — whatever image this points at is what the compose
+// service will boot next. Molt swap updates this.
+const CURRENT_TAG = "autonomous-agent:current";
 
-type Health = {
-  generationId: string;
-  healthy: boolean;
-  whoIAmAccordingToB: string;
-  notes: string;
-  reportedAt: string;
-};
-
-// ── 1. Stage a new shell candidate ──────────────────────────────────────
-
-export type StageMoltArgs = {
-  // Optional patch the agent wants to apply on top of the current src/.
-  // The agent first calls manage_self to write extensions, but a full molt
-  // can also touch core files via this patch. patch is a list of {relPath, content}.
-  patch?: Array<{ relPath: string; content: string }>;
-  reason: string;
-};
-
-export type StageResult = {
-  generationId: string;
-  generationDir: string;
-  filesPatched: string[];
-};
-
-export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
-  const generationId = new Date().toISOString().replace(/[:.]/g, "-");
-  const generationDir = join(GENERATIONS, generationId);
-  const newSrc = join(generationDir, "src");
-
-  await mkdir(generationDir, { recursive: true });
-
-  // Copy the entire current src/ tree.
-  await cp(SRC, newSrc, { recursive: true });
-
-  const patched: string[] = [];
-  for (const { relPath, content } of args.patch ?? []) {
-    if (relPath.includes("..")) {
-      throw new Error(`stageMolt: patch path escapes shell: ${relPath}`);
-    }
-    const target = join(newSrc, relPath);
-    await mkdir(join(target, ".."), { recursive: true });
-    await writeFile(target, content, "utf-8");
-    patched.push(relPath);
-  }
-
-  await writeFile(
-    join(generationDir, "intent.md"),
-    `# molt intent ${generationId}\n\n${args.reason}\n\nfiles patched:\n${
-      patched.map((p) => `- ${p}`).join("\n") || "- (none)"
-    }\n`,
-    "utf-8",
-  );
-
-  return { generationId, generationDir, filesPatched: patched };
+function imageTagFor(generationId: string): string {
+  // Docker tags are alphanumerics + [._-]. Our generationIds are ISO
+  // timestamps with colons already replaced by dashes in the filename,
+  // so they're safe to use as-is.
+  return `autonomous-agent:${generationId}`;
 }
 
-// ── 2. Test a staged shell ──────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────
 
-export type TestMoltArgs = {
-  generationId: string;
-  overallTimeoutMs?: number;
-  noOutputTimeoutMs?: number;
-};
-
-// Simplicity — autoagent principle: "all else being equal, simpler is better".
-// We don't block a molt for failing the simplicity check, but we surface the
-// delta so the agent (and the human reading lineage.md later) can see whether
-// the shell is growing or shrinking. Negative delta = fewer lines/files = simpler.
 export type SimplicityDelta = {
   lineCountBefore: number;
   lineCountAfter: number;
@@ -135,62 +83,145 @@ export type SimplicityDelta = {
   simpler: boolean;
 };
 
-export type TestIsolation = "docker" | "host";
+type Health = {
+  generationId: string;
+  healthy: boolean;
+  whoIAmAccordingToB: string;
+  notes: string;
+  reportedAt: string;
+};
+
+type SwapPending = {
+  generationId: string;
+  imageTag: string;
+  previousTag: string;
+  declaredAt: string;
+  reason: string;
+};
+
+// ── 1. Stage ─────────────────────────────────────────────────────────────
+
+export type StageMoltArgs = {
+  reason: string;
+  // Optional patches applied to the staged build context.
+  // relPath is relative to generations/<id>/ — so you can patch src/ or
+  // Dockerfile or package.json alike.
+  patch?: Array<{ relPath: string; content: string }>;
+};
+
+export type StageResult = {
+  generationId: string;
+  generationDir: string;
+  imageTag: string;
+  filesPatched: string[];
+  buildStdout: string;
+  buildStderr: string;
+};
+
+// Files copied into the build context. Each must exist at ROOT.
+// The agent can patch any of these through the `patch` argument.
+const BUILD_CONTEXT_FILES = [
+  "src",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
+];
+
+export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
+  if (!isDockerAvailable()) {
+    throw new Error(
+      "stageMolt: docker is not available. Molt requires docker because the shell is a docker image.",
+    );
+  }
+
+  const generationId = new Date().toISOString().replace(/[:.]/g, "-");
+  const generationDir = join(GENERATIONS, generationId);
+  await mkdir(generationDir, { recursive: true });
+
+  // Copy each file/dir in the build context from the project root.
+  for (const name of BUILD_CONTEXT_FILES) {
+    const srcPath = join(ROOT, name);
+    const dstPath = join(generationDir, name);
+    try {
+      await stat(srcPath);
+    } catch {
+      // Missing optional file (e.g., .dockerignore) — skip.
+      continue;
+    }
+    await cp(srcPath, dstPath, { recursive: true });
+  }
+
+  // Apply patches.
+  const patched: string[] = [];
+  for (const { relPath, content } of args.patch ?? []) {
+    if (relPath.includes("..")) {
+      throw new Error(`stageMolt: patch path escapes generation dir: ${relPath}`);
+    }
+    const target = join(generationDir, relPath);
+    await mkdir(join(target, ".."), { recursive: true });
+    await writeFile(target, content, "utf-8");
+    patched.push(relPath);
+  }
+
+  // Write intent before building so there's a record even if build fails.
+  await writeFile(
+    join(generationDir, "intent.md"),
+    `# molt intent ${generationId}\n\n${args.reason}\n\nfiles patched:\n${
+      patched.map((p) => `- ${p}`).join("\n") || "- (none)"
+    }\n\ntarget image tag: ${imageTagFor(generationId)}\n`,
+    "utf-8",
+  );
+
+  // Build the new image. This is the actual shell creation — the agent is
+  // literally constructing a new runtime environment for itself.
+  const imageTag = imageTagFor(generationId);
+  const build = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: ["build", "-t", imageTag, "-f", join(generationDir, "Dockerfile"), generationDir],
+    overallTimeoutMs: 10 * 60 * 1000,   // 10min for docker build
+    noOutputTimeoutMs: 3 * 60 * 1000,   // 3min no-output
+  }).wait();
+
+  if (build.exitCode !== 0) {
+    // Build failed. Record the failure and throw — the agent should
+    // handle this gracefully and try again with a different patch.
+    await writeFile(
+      join(generationDir, "build-error.log"),
+      `exit: ${build.exitCode}\n\nstdout:\n${build.stdout}\n\nstderr:\n${build.stderr}\n`,
+      "utf-8",
+    );
+    throw new Error(
+      `stageMolt: docker build failed (exit ${build.exitCode}). See ${relative(ROOT, generationDir)}/build-error.log`,
+    );
+  }
+
+  return {
+    generationId,
+    generationDir,
+    imageTag,
+    filesPatched: patched,
+    buildStdout: build.stdout.slice(-2000),
+    buildStderr: build.stderr.slice(-2000),
+  };
+}
+
+// ── 2. Test ──────────────────────────────────────────────────────────────
+
+export type TestMoltArgs = {
+  generationId: string;
+  overallTimeoutMs?: number;
+  noOutputTimeoutMs?: number;
+};
 
 export type TestResult = {
   healthy: boolean;
+  imageTag: string;
   health?: Health;
   run: RunResult;
   simplicity: SimplicityDelta;
-  isolation: TestIsolation;
 };
-
-// Docker image built from the project Dockerfile. The molt test mounts the
-// candidate src/ into /agent/src (read-only) and the parent body into
-// /agent/data (read-write for health.json), then runs `self-test` inside.
-//
-// `--network none` blocks outgoing network so the candidate can't exfiltrate
-// or phone home during test. The real agent gets network in normal runs;
-// this is only to isolate the unverified candidate.
-const MOLT_IMAGE = "autonomous-agent:latest";
-
-function buildDockerRunArgs(args: {
-  generationId: string;
-  generationDir: string;
-  realDataDir: string;
-  healthFileContainer: string;
-}): string[] {
-  return [
-    "run",
-    "--rm",
-    "--network",
-    "none",
-    "--read-only",
-    "--tmpfs",
-    "/tmp:rw,size=64m",
-    // The candidate shell's src/ — mounted read-only at /agent/src.
-    "-v",
-    `${join(args.generationDir, "src")}:/agent/src:ro`,
-    // The real body — mounted read-write at /agent/data.
-    "-v",
-    `${args.realDataDir}:/agent/data`,
-    "-e",
-    `MOLT_HEALTH_FILE=${args.healthFileContainer}`,
-    "-e",
-    `MOLT_GENERATION_ID=${args.generationId}`,
-    "-e",
-    "AGENT_ROOT=/agent",
-    "-e",
-    "AGENT_DATA_DIR=/agent/data",
-    // Explicitly DO NOT forward ANTHROPIC_API_KEY or OAuth creds — the
-    // self-test does not need to call the LLM and we don't want an untested
-    // shell to have access to our credentials. If it tries to call the LLM,
-    // it will fail, and that's fine.
-    MOLT_IMAGE,
-    "self-test",
-    args.generationId,
-  ];
-}
 
 async function countCodeLines(dir: string): Promise<{ lines: number; files: number }> {
   let lines = 0;
@@ -223,16 +254,19 @@ async function countCodeLines(dir: string): Promise<{ lines: number; files: numb
 }
 
 export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
-  const generationDir = join(GENERATIONS, args.generationId);
-  const candidateCli = join(generationDir, "src", "cli.ts");
-  try {
-    await stat(candidateCli);
-  } catch {
-    throw new Error(`testMolt: candidate cli.ts not found at ${relative(ROOT, candidateCli)}`);
+  if (!isDockerAvailable()) {
+    throw new Error("testMolt: docker not available.");
   }
 
+  const generationDir = join(GENERATIONS, args.generationId);
+  try {
+    await stat(generationDir);
+  } catch {
+    throw new Error(`testMolt: generation dir not found: ${args.generationId}`);
+  }
+  const imageTag = imageTagFor(args.generationId);
+
   await mkdir(MOLT_DIR, { recursive: true });
-  // Clear any previous health report so we know the new one is fresh.
   try {
     await rm(HEALTH_FILE);
   } catch {
@@ -240,46 +274,39 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
   }
 
   const realDataDir = join(ROOT, "data");
+  // Inside the container, the body is mounted at /agent/data. B's runSelfTest
+  // writes health.json to MOLT_HEALTH_FILE which we set to the container path.
+  // From the host side, the same file lives at realDataDir/.molt/health.json.
+  const healthFileContainer = "/agent/data/.molt/health.json";
 
-  // Prefer Docker for real isolation. Fall back to host spawn only if Docker
-  // isn't available — that's the old behavior and is strictly less safe.
-  let run: RunResult;
-  let isolation: TestIsolation;
-
-  if (isDockerAvailable()) {
-    isolation = "docker";
-    // Inside the container, the health file is at /agent/data/.molt/health.json.
-    // From the host, that's the same file via the volume mount (data/.molt/health.json).
-    const healthFileContainer = "/agent/data/.molt/health.json";
-    run = await spawnSupervised({
-      cmd: "docker",
-      cmdArgs: buildDockerRunArgs({
-        generationId: args.generationId,
-        generationDir,
-        realDataDir,
-        healthFileContainer,
-      }),
-      overallTimeoutMs: args.overallTimeoutMs ?? 120_000,
-      noOutputTimeoutMs: args.noOutputTimeoutMs ?? 60_000,
-    }).wait();
-  } else {
-    isolation = "host";
-    run = await spawnSupervised({
-      script: relative(ROOT, candidateCli),
-      args: ["self-test", args.generationId],
-      overallTimeoutMs: args.overallTimeoutMs ?? 60_000,
-      noOutputTimeoutMs: args.noOutputTimeoutMs ?? 30_000,
-      env: {
-        MOLT_HEALTH_FILE: HEALTH_FILE,
-        MOLT_GENERATION_ID: args.generationId,
-        // Critical — B lives in generations/<id>/src/ but its body is the
-        // parent's data/. Without these, B's paths.ts would resolve DATA to
-        // generations/<id>/data/ which doesn't exist.
-        AGENT_ROOT: ROOT,
-        AGENT_DATA_DIR: realDataDir,
-      },
-    }).wait();
-  }
+  const run = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: [
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "--read-only",
+      "--tmpfs",
+      "/tmp:rw,size=64m",
+      "-v",
+      `${realDataDir}:/agent/data`,
+      "-e",
+      `MOLT_HEALTH_FILE=${healthFileContainer}`,
+      "-e",
+      `MOLT_GENERATION_ID=${args.generationId}`,
+      "-e",
+      "AGENT_ROOT=/agent",
+      "-e",
+      "AGENT_DATA_DIR=/agent/data",
+      // Do NOT forward ANTHROPIC_API_KEY — untested B does not get LLM access.
+      imageTag,
+      "self-test",
+      args.generationId,
+    ],
+    overallTimeoutMs: args.overallTimeoutMs ?? 120_000,
+    noOutputTimeoutMs: args.noOutputTimeoutMs ?? 60_000,
+  }).wait();
 
   let health: Health | undefined;
   try {
@@ -291,7 +318,7 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
 
   const healthy = !!health?.healthy && run.exitCode === 0;
 
-  // Simplicity delta — compare current SRC with the candidate generation src.
+  // Simplicity delta — compare current SRC against the staged candidate src.
   const currentCounts = await countCodeLines(SRC);
   const candidateCounts = await countCodeLines(join(generationDir, "src"));
   const simplicity: SimplicityDelta = {
@@ -304,30 +331,111 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
     simpler: candidateCounts.lines < currentCounts.lines,
   };
 
-  return { healthy, health, run, simplicity, isolation };
+  return { healthy, imageTag, run, simplicity, health };
 }
 
-// ── 3. Queue a swap ─────────────────────────────────────────────────────
+// ── 3. Swap ──────────────────────────────────────────────────────────────
+//
+// doSwap performs the actual retag atomically (well, as atomically as two
+// docker tag operations can be). On success the compose restart policy
+// will bring up a fresh container using the new :current.
+//
+// The agent calls doSwap via the molt_swap tool; afterwards the agent
+// should exit (or call rest/transition to let the cycle end naturally).
+// Exit with code 75 signals a molt-requested restart.
 
-export type QueueSwapArgs = {
+export type SwapArgs = {
   generationId: string;
   reason: string;
 };
 
-export async function queueSwap(args: QueueSwapArgs): Promise<{ swapPath: string }> {
-  const generationDir = join(GENERATIONS, args.generationId);
-  // Sanity-check the candidate exists.
-  await stat(join(generationDir, "src", "cli.ts"));
+export type SwapResult = {
+  ok: true;
+  previousTag: string;
+  newTag: string;
+  generationId: string;
+};
 
+export async function doSwap(args: SwapArgs): Promise<SwapResult> {
+  if (!isDockerAvailable()) {
+    throw new Error("doSwap: docker not available.");
+  }
+
+  const newTag = imageTagFor(args.generationId);
+
+  // Verify the candidate image exists before touching anything.
+  const inspect = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: ["image", "inspect", newTag],
+    overallTimeoutMs: 10_000,
+  }).wait();
+  if (inspect.exitCode !== 0) {
+    throw new Error(
+      `doSwap: candidate image ${newTag} not found. Did stageMolt complete? Did the build succeed?`,
+    );
+  }
+
+  const previousTag = `autonomous-agent:previous-${new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")}`;
+
+  // 1. Tag current → previous-<ts>  (so rollback is possible)
+  // This can fail if :current doesn't exist yet (fresh system). Treat that
+  // as ok and skip.
+  const tagCurrent = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: ["tag", CURRENT_TAG, previousTag],
+    overallTimeoutMs: 10_000,
+  }).wait();
+  // Ignore exit code — if :current doesn't exist, there's nothing to back up.
+
+  // 2. Tag new → current
+  const tagNew = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: ["tag", newTag, CURRENT_TAG],
+    overallTimeoutMs: 10_000,
+  }).wait();
+  if (tagNew.exitCode !== 0) {
+    throw new Error(`doSwap: failed to tag ${newTag} as ${CURRENT_TAG}: ${tagNew.stderr}`);
+  }
+
+  // 3. Record in lineage.
+  await appendLineage({
+    generationId: args.generationId,
+    imageTag: newTag,
+    previousTag: tagCurrent.exitCode === 0 ? previousTag : "(none)",
+    reason: args.reason,
+  });
+
+  // 4. Write swap-pending marker (informational — the actual work is done).
+  //    Some observers (scripts, logs) may watch this file.
   await mkdir(MOLT_DIR, { recursive: true });
   const pending: SwapPending = {
     generationId: args.generationId,
-    generationDir,
+    imageTag: newTag,
+    previousTag: tagCurrent.exitCode === 0 ? previousTag : "(none)",
     declaredAt: new Date().toISOString(),
     reason: args.reason,
   };
   await writeFile(SWAP_PENDING, JSON.stringify(pending, null, 2), "utf-8");
-  return { swapPath: SWAP_PENDING };
+
+  return {
+    ok: true,
+    previousTag: tagCurrent.exitCode === 0 ? previousTag : "(none)",
+    newTag: CURRENT_TAG,
+    generationId: args.generationId,
+  };
+}
+
+// Called by the daemon at startup. If a swap-pending file exists but we are
+// already booted (meaning the retag + restart actually happened), clean up
+// the marker. If something is weird, leave it.
+export async function cleanupPendingSwapMarker(): Promise<void> {
+  try {
+    await rm(SWAP_PENDING);
+  } catch {
+    // ok
+  }
 }
 
 export async function readPendingSwap(): Promise<SwapPending | null> {
@@ -339,90 +447,22 @@ export async function readPendingSwap(): Promise<SwapPending | null> {
   }
 }
 
-// ── 4. Perform the swap ──────────────────────────────────────────────────
-//
-// This is called by the daemon at a turn boundary, BEFORE running the next
-// cycle. The current process performs the rename and then re-execs itself
-// (or simply exits and the daemon's outer wrapper restarts it).
-//
-// We do NOT exec here — we return success and let the daemon decide. This
-// keeps the operation testable and lets cli.ts control restart semantics.
-
-export type SwapResult = {
-  ok: true;
-  oldShellPath: string;
-  newShellPath: string;
-  generationId: string;
-};
-
-export async function performSwap(): Promise<SwapResult> {
-  const pending = await readPendingSwap();
-  if (!pending) {
-    throw new Error("performSwap: no pending swap to perform");
-  }
-
-  const newSrc = join(pending.generationDir, "src");
-  await stat(newSrc); // sanity check
-
-  // Move current src/ to generations/<id>/old
-  const oldShellPath = join(pending.generationDir, "old");
-  // Atomic rename within the same filesystem.
-  await rename(SRC, oldShellPath);
-
-  try {
-    await rename(newSrc, SRC);
-  } catch (err) {
-    // If the second rename fails, restore the old shell so the agent doesn't die.
-    await rename(oldShellPath, SRC);
-    throw err;
-  }
-
-  // Mark swap complete: remove the pending marker, append to lineage.
-  await rm(SWAP_PENDING);
-  await appendLineage({
-    generationId: pending.generationId,
-    reason: pending.reason,
-  });
-
-  return {
-    ok: true,
-    oldShellPath,
-    newShellPath: SRC,
-    generationId: pending.generationId,
-  };
-}
-
 async function appendLineage(args: {
   generationId: string;
+  imageTag: string;
+  previousTag: string;
   reason: string;
 }): Promise<void> {
-  const line = `- **${args.generationId}** — molted at ${new Date().toISOString()}: ${args.reason}\n`;
+  const line = `- **${args.generationId}** — molted at ${new Date().toISOString()}\n    image: \`${args.imageTag}\`, previous: \`${args.previousTag}\`\n    reason: ${args.reason}\n`;
   try {
     const existing = await readFile(LINEAGE, "utf-8");
     await writeFile(LINEAGE, existing + line, "utf-8");
   } catch {
-    // No prior lineage. Create one.
-    await writeFile(
-      LINEAGE,
-      `# Lineage\n\n${line}`,
-      "utf-8",
-    );
+    await writeFile(LINEAGE, `# Lineage\n\n${line}`, "utf-8");
   }
 }
 
-// ── 5. Self-test entry point ─────────────────────────────────────────────
-//
-// Called by `cli.ts self-test <generationId>`. The candidate shell B uses
-// this to verify it can boot and recognize itself before A trusts it.
-//
-// The test is intentionally minimal:
-//   - read data/whoAmI.md (proves body is reachable)
-//   - read data/state.json (proves state is parseable)
-//   - write a health.json with a self-recognition statement
-//
-// More elaborate tests (LLM-driven self-recognition checks) can be added
-// later as extensions. The point of this function is just: did the new
-// shell boot and find its own body?
+// ── 4. Self-test (runs inside candidate container B) ─────────────────────
 
 export async function runSelfTest(generationId: string): Promise<void> {
   const healthFile = process.env.MOLT_HEALTH_FILE;
@@ -431,10 +471,10 @@ export async function runSelfTest(generationId: string): Promise<void> {
   }
 
   const errors: string[] = [];
-  let whoIAm = "";
+  let whoAmI = "";
 
   try {
-    whoIAm = await readFile(join(DATA, "whoAmI.md"), "utf-8");
+    whoAmI = await readFile(join(DATA, "whoAmI.md"), "utf-8");
   } catch (err) {
     errors.push(`could not read whoAmI.md: ${(err as Error).message}`);
   }
@@ -450,7 +490,7 @@ export async function runSelfTest(generationId: string): Promise<void> {
   const health: Health = {
     generationId,
     healthy,
-    whoIAmAccordingToB: whoIAm.slice(0, 500),
+    whoIAmAccordingToB: whoAmI.slice(0, 500),
     notes: errors.length ? errors.join("; ") : "boot ok; body reachable",
     reportedAt: new Date().toISOString(),
   };
@@ -458,7 +498,6 @@ export async function runSelfTest(generationId: string): Promise<void> {
   await mkdir(join(healthFile, ".."), { recursive: true });
   await writeFile(healthFile, JSON.stringify(health, null, 2), "utf-8");
 
-  // exit 0 if healthy, 1 if not — supervisor checks both health file and exit code.
   if (!healthy) {
     process.exit(1);
   }

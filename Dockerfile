@@ -19,6 +19,17 @@ ENV NODE_ENV=production
 # corepack ships with Node 22 — just enable pnpm
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
+# Install docker CLI so the agent can build and manage its own images
+# from inside the container. The host's /var/run/docker.sock is mounted
+# in at runtime (see docker-compose.yml). Self-molt uses this to build
+# a new image, test it, and re-tag autonomous-agent:current.
+#
+# We install only the CLI (not the daemon) since we're talking to the
+# host's docker via the mounted socket.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /agent
 
 # Install dependencies first — these change less often than src/

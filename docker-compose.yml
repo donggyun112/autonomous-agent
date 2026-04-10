@@ -25,7 +25,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: autonomous-agent:latest
+    # :current is the rolling tag — the molt protocol retags new images as
+    # "current" so a restart picks them up automatically. When compose builds
+    # from scratch, it also tags the built image as :current.
+    image: autonomous-agent:current
     container_name: autonomous-agent
     restart: unless-stopped
     stdin_open: true
@@ -40,5 +43,10 @@ services:
     volumes:
       - ./data:/agent/data
       - ./generations:/agent/generations
-      # Dev convenience — remove for production builds.
+      # docker.sock — lets the agent build + run + retag images for self-molt.
+      # This grants docker-level access to the host. Acceptable because the
+      # agent code is trusted (ours) and the host is the user's own machine.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Dev convenience — bind mount src so changes take effect without rebuild.
+      # Remove this line for production.
       - ./src:/agent/src:ro

@@ -24,7 +24,7 @@ import {
 import { DATA } from "../primitives/paths.js";
 import { manageSelf, type ManageSelfAction } from "./manage_self.js";
 import {
-  queueSwap,
+  doSwap,
   stageMolt,
   testMolt,
 } from "./molt.js";
@@ -357,18 +357,18 @@ const moltStageTool: Tool = {
   def: {
     name: "molt_stage",
     description:
-      "Stage a candidate new shell (B) inside generations/<id>/. Optionally apply a patch — a list of files to overwrite in the new src/. Use this when you want to change something in your core that manage_self cannot reach (state machine, primitives, llm client, base prompt). The patch is applied to a copy; your current shell is not touched. Returns the generationId. Next call molt_test to verify B can boot.",
+      "Stage a candidate new shell (B) by building a new Docker image. Copies the full build context (src/, Dockerfile, package.json, pnpm-lock.yaml, tsconfig.json) to generations/<id>/, applies optional patches to any of those files, then runs `docker build` to produce a new image tagged autonomous-agent:<id>. This can take several minutes. Use this when you want to change your core that manage_self cannot reach — state machine, primitives, llm client, base prompt, dependencies, even the base OS or Node version via Dockerfile patches. Your current shell (container) is untouched. Next call molt_test to verify the new image boots. Returns { generationId, imageTag, filesPatched, buildStdout, buildStderr }.",
     input_schema: {
       type: "object",
       properties: {
         reason: {
           type: "string",
-          description: "Why you are molting. Recorded in lineage.",
+          description: "Why you are molting. Recorded in lineage.md.",
         },
         patch: {
           type: "array",
           description:
-            "Optional list of file patches. Each is { rel_path, content }. rel_path is relative to src/.",
+            "Optional list of file patches applied to the build context. Each is { rel_path, content }. rel_path is relative to the generation root — so 'src/core/cycle.ts' or 'Dockerfile' or 'package.json' are all valid.",
           items: {
             type: "object",
             properties: {
@@ -395,7 +395,7 @@ const moltTestTool: Tool = {
   def: {
     name: "molt_test",
     description:
-      "Test a staged candidate shell. Spawns the candidate inside an isolated Docker container (falls back to supervised host subprocess only if Docker is unavailable). Watches with a 60s overall timeout and 30s no-output timeout. The candidate must boot, read whoAmI/state, and write a health file. Also reports a simplicity delta (lines/files before vs after). If healthy, you may call molt_swap. Remember: equal capability with fewer lines is a real improvement — simpler wins.",
+      "Test a staged candidate shell. Runs `docker run --rm --network none` on the candidate image with the real body mounted; the candidate boots inside its own container, reads whoAmI/state, and writes a health file. The candidate has no network access and no API key. Watches with a 120s overall timeout and 60s no-output timeout. Also reports a simplicity delta (lines/files before vs after) — equal capability with fewer lines is a real improvement, simpler wins. If healthy, you may call molt_swap.",
     input_schema: {
       type: "object",
       properties: {
@@ -411,6 +411,7 @@ const moltTestTool: Tool = {
     return JSON.stringify(
       {
         healthy: result.healthy,
+        imageTag: result.imageTag,
         simplicity: result.simplicity,
         run: {
           reason: result.run.reason,
@@ -431,7 +432,7 @@ const moltSwapTool: Tool = {
   def: {
     name: "molt_swap",
     description:
-      "Queue an actual swap of your shell. After molt_test reports healthy, this writes a swap-pending marker. The daemon will perform the swap at the next cycle boundary, before running another cycle: rename current src/ to old, rename the candidate to src/, restart the daemon process. The body (data/) is untouched. Use only after molt_test succeeded.",
+      "Perform the actual image swap after molt_test reports healthy. This retags the Docker images: the current image becomes autonomous-agent:previous-<ts> (kept for rollback), and the candidate image becomes autonomous-agent:current. After swap, the running container should exit so the supervisor (docker compose restart policy) brings up a fresh container from the new :current image. The body (data/) is untouched across the swap. Use only after molt_test succeeded.",
     input_schema: {
       type: "object",
       properties: {
@@ -442,11 +443,11 @@ const moltSwapTool: Tool = {
     },
   },
   handler: async (input) => {
-    const result = await queueSwap({
+    const result = await doSwap({
       generationId: String(input.generation_id),
       reason: String(input.reason ?? "(no reason given)"),
     });
-    return `swap queued: ${result.swapPath}\nThe daemon will perform the swap at the next cycle boundary.`;
+    return JSON.stringify(result, null, 2);
   },
 };
 

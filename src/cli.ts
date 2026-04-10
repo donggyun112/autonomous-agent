@@ -13,7 +13,7 @@ import { join } from "path";
 import { createInterface } from "readline/promises";
 import { runCycle } from "./core/cycle.js";
 import { birth, measureDrift } from "./core/identity.js";
-import { performSwap, readPendingSwap, runSelfTest } from "./core/molt.js";
+import { cleanupPendingSwapMarker, readPendingSwap, runSelfTest } from "./core/molt.js";
 import {
   calculateSleepPressure,
   loadState,
@@ -236,23 +236,17 @@ async function selfTest(args: string[]): Promise<void> {
   console.log(`[self-test] ${generationId} ok`);
 }
 
-async function maybePerformSwap(): Promise<boolean> {
+// After a molt, the compose restart policy brings up a fresh container from
+// the newly-tagged :current image. When we boot here, we might find a
+// swap-pending marker left over from the previous container's exit. That's
+// informational — the actual image retag already happened. Just clean it up.
+async function maybeCleanupSwapMarker(): Promise<void> {
   const pending = await readPendingSwap();
-  if (!pending) return false;
-  console.log(`[molt] swap pending: ${pending.generationId} — ${pending.reason}`);
-  try {
-    const result = await performSwap();
+  if (pending) {
     console.log(
-      `[molt] swap complete. old shell at ${result.oldShellPath}. restarting daemon…`,
+      `[molt] previous generation completed: ${pending.generationId} (${pending.imageTag})`,
     );
-    // Re-exec ourselves so the new code is loaded. The simplest reliable way:
-    // exit non-zero so a wrapper restarts us. For now just exit 75 (advice
-    // to restart) and document that the daemon should be run under a
-    // restarter (pm2, systemd, or `while true; do pnpm live; done`).
-    process.exit(75);
-  } catch (err) {
-    console.error(`[molt] swap FAILED: ${(err as Error).message}`);
-    return false;
+    await cleanupPendingSwapMarker();
   }
 }
 
@@ -263,6 +257,12 @@ async function live(): Promise<void> {
   }
 
   console.log("[live] daemon starting. Ctrl+C to stop. Exit 75 = molt swap requested.");
+
+  // At startup, clean up any stale swap-pending marker from a previous
+  // container exit. The actual image retag already happened; this is just
+  // a stale file.
+  await maybeCleanupSwapMarker();
+
   let running = true;
   process.on("SIGINT", () => {
     console.log("\n[live] stopping after current cycle…");
@@ -270,11 +270,6 @@ async function live(): Promise<void> {
   });
 
   while (running) {
-    // Check for pending molt swap before running the next cycle.
-    // If a swap is queued, performSwap exits the process so the supervisor
-    // (or `while true` loop) re-runs with the new src/.
-    await maybePerformSwap();
-
     const state = await loadState();
 
     // Honor scheduled wake.

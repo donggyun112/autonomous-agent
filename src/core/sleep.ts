@@ -39,6 +39,7 @@ import {
 } from "./state.js";
 import {
   ensureWikiInitialized,
+  lintWiki,
   listPages,
   readPage,
   rebuildIndex,
@@ -53,6 +54,8 @@ export type SleepReport = {
   pruned: number;
   whoAmIUpdated: boolean;
   wikiPagesTouched: number;
+  wikiLintFindings: number;
+  selfPageSynced: boolean;
   durationMs: number;
 };
 
@@ -149,6 +152,48 @@ async function findAssociation(args: {
   return { via: m[1].trim() };
 }
 
+// Sync wiki/self.md with the current whoAmI, adding cross-references to
+// the agent's most connected concept pages. self.md is a structured view —
+// the whoAmI prose + a "themes I return to" section linking the wiki.
+//
+// This runs during SLEEP after integrateJournal, so the self page reflects
+// the just-updated whoAmI plus whatever concepts exist in the wiki right now.
+async function syncSelfPage(): Promise<boolean> {
+  const whoAmI = await reconstitute();
+  const stripped = whoAmI.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+  if (!stripped) return false;
+
+  // Pick the 8 most recently updated concept pages as "themes".
+  const concepts = (await listPages({ kind: "concept" }))
+    .sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))
+    .slice(0, 8);
+
+  const themeLines =
+    concepts.length > 0
+      ? concepts.map((c) => `- [[${c.slug}]] — ${c.title}`).join("\n")
+      : "_(no concept pages yet — the wiki will grow as you live)_";
+
+  const body = [
+    "## who I currently believe I am",
+    "",
+    stripped,
+    "",
+    "## themes I return to",
+    "",
+    themeLines,
+  ].join("\n");
+
+  await writePage({
+    kind: "self",
+    slug: "self",
+    title: "Self",
+    body,
+    related: concepts.map((c) => c.slug),
+    reason: "sleep: self-page sync with whoAmI + wiki themes",
+  });
+  return true;
+}
+
 // Extract today's main thread from journal entries and append it to whoAmI.
 async function integrateJournal(): Promise<boolean> {
   const recent = await readRecent(1);
@@ -190,6 +235,8 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     pruned: 0,
     whoAmIUpdated: false,
     wikiPagesTouched: 0,
+    wikiLintFindings: 0,
+    selfPageSynced: false,
     durationMs: 0,
   };
 
@@ -249,11 +296,22 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
           .map((p) => p.slug)
           .slice(0, 5);
 
+        // Merge the cluster's source memoryIds with any sources already
+        // recorded on the existing page, keeping a bounded history (most
+        // recent 20). This gives us a back-link from wiki → memory graph:
+        // every wiki page knows which raw memories contributed to it.
+        const priorSources = existing?.frontmatter.sources ?? [];
+        const newSources = cluster.memoryIds ?? [];
+        const mergedSources = Array.from(
+          new Set([...newSources, ...priorSources]),
+        ).slice(0, 20);
+
         await writePage({
           kind: "concept",
           slug: page.slug,
           title: page.title,
           body: page.body,
+          sources: mergedSources.length > 0 ? mergedSources : undefined,
           related: related.length > 0 ? related : undefined,
           reason: existing ? "sleep: revised from new cluster" : "sleep: created from cluster",
         });
@@ -301,9 +359,27 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     // ok
   }
 
-  // 5b. Rebuild wiki index (cheap, keeps the catalog current).
+  // 5b. Sync wiki/self.md with the (possibly just-updated) whoAmI and
+  // cross-reference the top concept pages. This runs AFTER integrateJournal
+  // so the self page reflects the freshest view.
+  try {
+    report.selfPageSynced = await syncSelfPage();
+  } catch {
+    // ok
+  }
+
+  // 5c. Rebuild wiki index (cheap, keeps the catalog current).
   try {
     await rebuildIndex();
+  } catch {
+    // ok
+  }
+
+  // 5d. Lint the wiki. Findings are logged; the agent can read the wiki
+  // log later and decide whether to address them during REFLECT.
+  try {
+    const lint = await lintWiki();
+    report.wikiLintFindings = lint.findings.length;
   } catch {
     // ok
   }

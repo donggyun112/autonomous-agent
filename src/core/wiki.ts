@@ -353,6 +353,131 @@ export async function rebuildIndex(): Promise<{ count: number; path: string }> {
   return { count: pages.length, path: WIKI_INDEX };
 }
 
+// ── Lint ─────────────────────────────────────────────────────────────────
+//
+// Health check for the wiki. Cheap, no LLM calls — pure graph analysis.
+// Runs during SLEEP and optionally via a tool the agent can call.
+//
+// Checks:
+//   orphan         — page that no other page references via `related` or [[link]]
+//   stale          — page not updated in STALE_DAYS days (default 30)
+//   broken-link    — [[wikilink]] inside a body pointing at a nonexistent slug
+//   lonely         — concept page with no sources recorded
+
+const STALE_DAYS_DEFAULT = 30;
+const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+
+export type LintFinding = {
+  kind: "orphan" | "stale" | "broken-link" | "lonely";
+  slug: string;
+  pageKind: WikiKind;
+  detail: string;
+};
+
+export type LintReport = {
+  totalPages: number;
+  findings: LintFinding[];
+  summary: string;
+};
+
+export async function lintWiki(options?: { staleDays?: number }): Promise<LintReport> {
+  const staleDays = options?.staleDays ?? STALE_DAYS_DEFAULT;
+  const staleThresholdMs = Date.now() - staleDays * 24 * 60 * 60 * 1000;
+
+  const pages = await listPages();
+  const findings: LintFinding[] = [];
+
+  const slugSet = new Set(pages.map((p) => p.slug));
+  const inbound = new Map<string, number>();
+  for (const p of pages) inbound.set(p.slug, 0);
+
+  for (const p of pages) {
+    let text: string;
+    try {
+      text = await readFile(p.path, "utf-8");
+    } catch {
+      continue;
+    }
+    const { fm, body } = parseFrontmatter(text);
+    if (!fm) continue;
+
+    for (const r of fm.related ?? []) {
+      inbound.set(r, (inbound.get(r) ?? 0) + 1);
+    }
+
+    // Count [[wikilink]] refs — use matchAll to iterate.
+    for (const match of body.matchAll(WIKILINK_RE)) {
+      const linkSlug = slugify(match[1].trim());
+      if (slugSet.has(linkSlug)) {
+        inbound.set(linkSlug, (inbound.get(linkSlug) ?? 0) + 1);
+      } else {
+        findings.push({
+          kind: "broken-link",
+          slug: p.slug,
+          pageKind: p.kind,
+          detail: `[[${match[1]}]] → ${linkSlug} (no such page)`,
+        });
+      }
+    }
+
+    const updatedMs = Date.parse(fm.updated_at);
+    if (Number.isFinite(updatedMs) && updatedMs < staleThresholdMs) {
+      const ageDays = Math.floor((Date.now() - updatedMs) / (24 * 60 * 60 * 1000));
+      findings.push({
+        kind: "stale",
+        slug: p.slug,
+        pageKind: p.kind,
+        detail: `not updated in ${ageDays}d (threshold ${staleDays}d)`,
+      });
+    }
+
+    if (p.kind === "concept" && (!fm.sources || fm.sources.length === 0)) {
+      findings.push({
+        kind: "lonely",
+        slug: p.slug,
+        pageKind: p.kind,
+        detail: "no sources recorded — was this page compiled from real memories?",
+      });
+    }
+  }
+
+  for (const p of pages) {
+    if (p.kind === "self") continue;
+    const count = inbound.get(p.slug) ?? 0;
+    if (count === 0) {
+      findings.push({
+        kind: "orphan",
+        slug: p.slug,
+        pageKind: p.kind,
+        detail: "no inbound references",
+      });
+    }
+  }
+
+  if (findings.length > 0) {
+    await appendLog({
+      ts: new Date().toISOString(),
+      kind: "lint",
+      target: "wiki",
+      note: `${findings.length} finding(s): ${findings
+        .slice(0, 5)
+        .map((f) => `${f.kind}@${f.slug}`)
+        .join(", ")}${findings.length > 5 ? "..." : ""}`,
+    });
+  }
+
+  return {
+    totalPages: pages.length,
+    findings,
+    summary:
+      findings.length === 0
+        ? `${pages.length} pages, all healthy`
+        : `${pages.length} pages, ${findings.length} finding(s): ${["orphan", "stale", "broken-link", "lonely"]
+            .map((k) => `${findings.filter((f) => f.kind === k).length} ${k}`)
+            .join(", ")}`,
+  };
+}
+
 // ── Log (chronological) ──────────────────────────────────────────────────
 
 export async function appendLog(args: {

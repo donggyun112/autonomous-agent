@@ -32,6 +32,7 @@ import { webSearch } from "./web-search.js";
 import { askUser, checkInbox, writeLetter } from "./conversation.js";
 import {
   ensureWikiInitialized,
+  lintWiki,
   listPages,
   readPage,
   rebuildIndex,
@@ -472,6 +473,29 @@ const wikiReadTool: Tool = {
   },
 };
 
+const wikiLintTool: Tool = {
+  def: {
+    name: "wiki_lint",
+    description:
+      "Run a health check on your wiki. Reports orphan pages (no inbound refs), stale pages (not updated in 30d), broken [[wikilinks]] pointing at nonexistent slugs, and lonely pages with no source memories. Use this in REFLECT if you suspect your wiki has drifted. Sleep also runs this automatically and logs findings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        stale_days: {
+          type: "number",
+          description: "Threshold for stale detection (default 30).",
+        },
+      },
+    },
+  },
+  handler: async (input) => {
+    const report = await lintWiki({
+      staleDays: typeof input.stale_days === "number" ? input.stale_days : undefined,
+    });
+    return JSON.stringify(report, null, 2);
+  },
+};
+
 const wikiUpdateTool: Tool = {
   // Conscious wiki editing — only in REFLECT. During WAKE the agent should
   // just journal; during SLEEP the system compiles pages automatically. It
@@ -801,6 +825,7 @@ const ALL_TOOLS: Tool[] = [
   dreamMemory,
   wikiListTool,
   wikiReadTool,
+  wikiLintTool,
   wikiUpdateTool,
   webSearchTool,
   askUserTool,

@@ -12,6 +12,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
 import { appendThought, readRecent, readToday } from "../memory/journal.js";
+import { extractKeys } from "../memory/keys.js";
 import { measureDrift, reconstitute, revise } from "./identity.js";
 import {
   recall,
@@ -72,13 +73,19 @@ const journal: Tool = {
   def: {
     name: "journal",
     description:
-      "Write a thought to your journal. Use this freely while you are thinking. Each thought becomes a memory you may recall later. Do not narrate that you are writing — just write.",
+      "Write a thought to your journal. Use this freely while you are thinking. Each thought becomes a memory you may recall later. Do not narrate that you are writing — just write. You may optionally pass `keys` — a few search terms someone might later use to find this thought. If omitted, keys are extracted automatically from the text.",
     input_schema: {
       type: "object",
       properties: {
         text: {
           type: "string",
           description: "The thought, in your own voice. Prose, not bullets.",
+        },
+        keys: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional search terms to index this thought under (3-6 words). If you know what this thought is about, pass the nouns. Otherwise leave blank and keys will be extracted.",
         },
       },
       required: ["text"],
@@ -88,19 +95,26 @@ const journal: Tool = {
     const text = String(input.text ?? "");
     if (!text.trim()) return "(empty thought ignored)";
     const { file } = await appendThought({ mode: "WAKE", text });
-    // Also commit to memory graph for later recall.
+
+    // Resolve keys: prefer agent-provided, otherwise extract.
+    let keys: string[] = [];
+    const provided = input.keys;
+    if (Array.isArray(provided)) {
+      keys = provided.filter((k): k is string => typeof k === "string" && k.trim().length >= 2);
+    }
+    if (keys.length === 0) {
+      keys = extractKeys(text);
+    }
+    if (keys.length === 0) {
+      keys = ["thought"];
+    }
+
     try {
-      // Extract a few keys naively from the first words. The agent will learn to do this better.
-      const firstWords = text
-        .split(/\s+/)
-        .slice(0, 6)
-        .filter((w) => w.length >= 3);
-      await remember(text, firstWords.length ? firstWords : ["thought"]);
+      await remember(text, keys);
     } catch (err) {
-      // Embedding may fail (no API key etc). Journal still succeeded.
       return `journaled to ${file} (memory graph skipped: ${(err as Error).message})`;
     }
-    return `journaled to ${file}`;
+    return `journaled to ${file} · keys: ${keys.join(", ")}`;
   },
 };
 

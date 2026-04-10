@@ -15,4 +15,6 @@ generations/
 # Vendored reference codebases (claude-code, openclaw, deepagents, pi-mono, super-memory,
 # agent-skills, autoagent, karpathy, papers). 678MB+ of other people's code — do not
 # commit. Fetched locally for study only. See docs/reference/ for analyses.
-reference/
+# Leading slash scopes this to the top-level reference/ only, so docs/reference/
+# (our own analysis notes) is not blocked.
+/reference/

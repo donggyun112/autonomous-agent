@@ -121,6 +121,35 @@ export type Message =
       }>;
     };
 
+// Self-test mock: when SELF_TEST_MOCK_LLM=1, think() never touches the
+// network. It returns a scripted response that uses transition to SLEEP —
+// this exercises the full cycle machinery (message construction, tool
+// dispatch, state update, loop exit) without burning tokens or requiring
+// an API key. The molt protocol runs this inside the candidate container
+// to verify the new shell can actually live before we swap into it.
+async function mockThink(args: {
+  onEvent?: ThinkEventSink;
+}): Promise<ThinkResult> {
+  const result: ThinkResult = {
+    text: "(mock self-test thought — the shell is alive)",
+    toolCalls: [
+      {
+        id: "mock_t1",
+        name: "transition",
+        input: { to: "SLEEP", reason: "self-test complete" },
+      },
+    ],
+    stopReason: "tool_use",
+    inputTokens: 0,
+    outputTokens: 0,
+  };
+  if (args.onEvent) {
+    args.onEvent({ type: "text_delta", delta: result.text });
+    args.onEvent({ type: "message_end", result });
+  }
+  return result;
+}
+
 export async function think(args: {
   systemPrompt: string;
   messages: Message[];
@@ -129,6 +158,10 @@ export async function think(args: {
   model?: string;
   onEvent?: ThinkEventSink;
 }): Promise<ThinkResult> {
+  if (process.env.SELF_TEST_MOCK_LLM === "1") {
+    return mockThink({ onEvent: args.onEvent });
+  }
+
   const source = await getAuthSource();
   const apiKey = await source.getApiKey();
   const { client, isOAuth } = buildClient(apiKey);

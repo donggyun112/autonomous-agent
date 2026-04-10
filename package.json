@@ -12,6 +12,8 @@
     "login": "tsx src/cli.ts login",
     "logout": "tsx src/cli.ts logout",
     "auth": "tsx src/cli.ts whoami",
+    "inbox": "tsx src/cli.ts inbox",
+    "reply": "tsx src/cli.ts reply",
     "build": "tsc"
   },
   "dependencies": {

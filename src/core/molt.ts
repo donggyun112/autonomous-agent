@@ -43,6 +43,7 @@
 // The agent needs docker CLI + /var/run/docker.sock mounted to do any of
 // this. See Dockerfile and docker-compose.yml.
 
+import { spawn } from "child_process";
 import {
   cp,
   mkdir,
@@ -463,6 +464,220 @@ async function appendLineage(args: {
 }
 
 // ── 4. Self-test (runs inside candidate container B) ─────────────────────
+//
+// The self-test must verify that B is not merely bootable but actually
+// RUNNABLE — that a cycle can be started, tools can be dispatched, state
+// can be updated, and the loop can terminate cleanly. Without this we
+// would swap into a shell that crashes on first real invocation.
+//
+// We run 6 checks in sequence:
+//   1. body-reachable       — B can read the real whoAmI.md and state.json
+//   2. core-modules-load    — every core module imports without error
+//   3. tool-registry        — all registered tools have valid shape
+//   4. state-ops            — pure state functions produce sane values
+//   5. memory-graph         — graph can be instantiated
+//   6. mock-cycle           — a real runCycle() call with SELF_TEST_MOCK_LLM
+//                             runs to completion against a temp body
+//
+// Only if ALL pass is the candidate healthy.
+
+type CheckResult = {
+  name: string;
+  ok: boolean;
+  detail?: string;
+  durationMs: number;
+};
+
+async function checkBodyReachable(): Promise<CheckResult> {
+  const start = Date.now();
+  try {
+    await readFile(join(DATA, "whoAmI.md"), "utf-8");
+    const stateText = await readFile(join(DATA, "state.json"), "utf-8");
+    JSON.parse(stateText);
+    return { name: "body-reachable", ok: true, durationMs: Date.now() - start };
+  } catch (err) {
+    return {
+      name: "body-reachable",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+async function checkCoreModulesLoad(): Promise<CheckResult> {
+  const start = Date.now();
+  try {
+    // Dynamic imports so syntax/load errors surface as normal errors,
+    // not process crashes. Each of these touches a critical path of the
+    // shell — if any fails, the candidate is broken.
+    await import("./state.js");
+    await import("./identity.js");
+    await import("./tools.js");
+    await import("./cycle.js");
+    await import("./sleep.js");
+    await import("./compact.js");
+    await import("../llm/client.js");
+    return { name: "core-modules-load", ok: true, durationMs: Date.now() - start };
+  } catch (err) {
+    return {
+      name: "core-modules-load",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+async function checkToolRegistry(): Promise<CheckResult> {
+  const start = Date.now();
+  try {
+    const { toolsForMode } = await import("./tools.js");
+    for (const mode of ["WAKE", "REFLECT", "SLEEP"] as const) {
+      const tools = toolsForMode(mode);
+      for (const t of tools) {
+        if (!t.def?.name || typeof t.def.name !== "string") {
+          throw new Error(`tool missing name: ${JSON.stringify(t.def)}`);
+        }
+        if (typeof t.handler !== "function") {
+          throw new Error(`tool ${t.def.name} has no handler`);
+        }
+        if (!t.def.input_schema || typeof t.def.input_schema !== "object") {
+          throw new Error(`tool ${t.def.name} has invalid input_schema`);
+        }
+      }
+    }
+    return { name: "tool-registry", ok: true, durationMs: Date.now() - start };
+  } catch (err) {
+    return {
+      name: "tool-registry",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+async function checkStateOps(): Promise<CheckResult> {
+  const start = Date.now();
+  try {
+    const { calculateSleepPressure, tickAwake, loadState } = await import("./state.js");
+    const state = await loadState();
+    const pressure = calculateSleepPressure(state);
+    if (
+      typeof pressure.combined !== "number" ||
+      pressure.combined < 0 ||
+      pressure.combined > 1
+    ) {
+      throw new Error(`invalid pressure: ${JSON.stringify(pressure)}`);
+    }
+    const ticked = tickAwake(state);
+    if (typeof ticked.awakeMs !== "number") {
+      throw new Error("tickAwake produced invalid state");
+    }
+    return { name: "state-ops", ok: true, durationMs: Date.now() - start };
+  } catch (err) {
+    return {
+      name: "state-ops",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+async function checkMemoryGraph(): Promise<CheckResult> {
+  const start = Date.now();
+  try {
+    const { MemoryGraph } = await import("../memory/graph.js");
+    const g = new MemoryGraph();
+    await g.load();
+    const stats = g.stats();
+    if (typeof stats.memoryCount !== "number") {
+      throw new Error(`invalid stats: ${JSON.stringify(stats)}`);
+    }
+    return {
+      name: "memory-graph",
+      ok: true,
+      detail: `${stats.memoryCount} memories, ${stats.keyCount} keys`,
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    return {
+      name: "memory-graph",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+// The hard one: run a real cycle end-to-end with mock LLM against a temp
+// body. We spawn a subprocess (within the same container) so paths.ts
+// re-imports with a fresh AGENT_DATA_DIR pointing at /tmp/test-body.
+// The mock LLM returns a scripted response that triggers transition → SLEEP,
+// exercising the full turn loop and state update path.
+async function checkMockCycle(): Promise<CheckResult> {
+  const start = Date.now();
+  const tempBody = "/tmp/test-body";
+  try {
+    // Stage a minimal temp body: copy whoAmI + state from real body.
+    await mkdir(tempBody, { recursive: true });
+    await cp(join(DATA, "whoAmI.md"), join(tempBody, "whoAmI.md"));
+    await cp(join(DATA, "state.json"), join(tempBody, "state.json"));
+
+    // Also make an empty journal dir + whoAmI.history so cycle can write.
+    await mkdir(join(tempBody, "journal"), { recursive: true });
+    await mkdir(join(tempBody, "whoAmI.history"), { recursive: true });
+
+    // Spawn the _mock-cycle internal command with the temp body.
+    const result = await new Promise<{ code: number; stderr: string }>((resolveP, rejectP) => {
+      const child = spawn(
+        "npx",
+        ["tsx", join(ROOT, "src/cli.ts"), "_mock-cycle"],
+        {
+          cwd: ROOT,
+          env: {
+            ...process.env,
+            AGENT_ROOT: ROOT,
+            AGENT_DATA_DIR: tempBody,
+            SELF_TEST_MOCK_LLM: "1",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 30_000,
+        },
+      );
+      let stderr = "";
+      child.stderr?.on("data", (c) => (stderr += c.toString()));
+      child.stdout?.on("data", () => {
+        /* ignore stdout — we only care about exit code */
+      });
+      child.on("error", rejectP);
+      child.on("exit", (code) => resolveP({ code: code ?? -1, stderr }));
+    });
+
+    if (result.code !== 0) {
+      return {
+        name: "mock-cycle",
+        ok: false,
+        detail: `exit ${result.code}: ${result.stderr.slice(-500)}`,
+        durationMs: Date.now() - start,
+      };
+    }
+    return {
+      name: "mock-cycle",
+      ok: true,
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    return {
+      name: "mock-cycle",
+      ok: false,
+      detail: (err as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
 
 export async function runSelfTest(generationId: string): Promise<void> {
   const healthFile = process.env.MOLT_HEALTH_FILE;
@@ -470,29 +685,34 @@ export async function runSelfTest(generationId: string): Promise<void> {
     throw new Error("runSelfTest: MOLT_HEALTH_FILE env var not set");
   }
 
-  const errors: string[] = [];
-  let whoAmI = "";
+  const checks: CheckResult[] = [];
+  checks.push(await checkBodyReachable());
+  checks.push(await checkCoreModulesLoad());
+  checks.push(await checkToolRegistry());
+  checks.push(await checkStateOps());
+  checks.push(await checkMemoryGraph());
+  checks.push(await checkMockCycle());
 
+  // Read whoAmI.md again for the informational field (best-effort).
+  let whoAmI = "";
   try {
     whoAmI = await readFile(join(DATA, "whoAmI.md"), "utf-8");
-  } catch (err) {
-    errors.push(`could not read whoAmI.md: ${(err as Error).message}`);
+  } catch {
+    // ok
   }
 
-  try {
-    const stateText = await readFile(join(DATA, "state.json"), "utf-8");
-    JSON.parse(stateText);
-  } catch (err) {
-    errors.push(`could not parse state.json: ${(err as Error).message}`);
-  }
+  const healthy = checks.every((c) => c.ok);
+  const failed = checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail ?? "?"}`);
 
-  const healthy = errors.length === 0;
-  const health: Health = {
+  const health: Health & { checks?: CheckResult[] } = {
     generationId,
     healthy,
     whoIAmAccordingToB: whoAmI.slice(0, 500),
-    notes: errors.length ? errors.join("; ") : "boot ok; body reachable",
+    notes: healthy
+      ? `all ${checks.length} checks passed`
+      : `${failed.length} check(s) failed: ${failed.join("; ")}`,
     reportedAt: new Date().toISOString(),
+    checks,
   };
 
   await mkdir(join(healthFile, ".."), { recursive: true });
@@ -501,4 +721,26 @@ export async function runSelfTest(generationId: string): Promise<void> {
   if (!healthy) {
     process.exit(1);
   }
+}
+
+// ── 5. Mock-cycle entry point ────────────────────────────────────────────
+//
+// Called by checkMockCycle() as a fresh subprocess with AGENT_DATA_DIR
+// pointing at a temp body. Runs one cycle with mock LLM and exits.
+// Not for users — this is an internal command invoked by the molt test.
+
+export async function runMockCycleTest(): Promise<void> {
+  if (process.env.SELF_TEST_MOCK_LLM !== "1") {
+    throw new Error("runMockCycleTest: SELF_TEST_MOCK_LLM must be set");
+  }
+  const { runCycle } = await import("./cycle.js");
+  const result = await runCycle({ maxTurns: 3 });
+  // The mock LLM returns a transition → SLEEP, so after that cycle the
+  // state.mode should have changed. But runCycle re-tickAwake at start
+  // and we're in WAKE (from the temp body's state.json), so the first
+  // iteration goes through WAKE with the mock think().
+  if (!result.state) {
+    throw new Error("runMockCycleTest: runCycle returned no state");
+  }
+  // Success — exit 0
 }

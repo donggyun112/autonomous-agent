@@ -12,8 +12,14 @@ import { mkdir, readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { createInterface } from "readline/promises";
 import { runCycle } from "./core/cycle.js";
+import {
+  checkInbox as checkInboxApi,
+  listPendingQuestions,
+  unreadInboxCount,
+  userReply,
+} from "./core/conversation.js";
 import { birth, measureDrift } from "./core/identity.js";
-import { cleanupPendingSwapMarker, readPendingSwap, runSelfTest } from "./core/molt.js";
+import { cleanupPendingSwapMarker, readPendingSwap, runMockCycleTest, runSelfTest } from "./core/molt.js";
 import {
   calculateSleepPressure,
   loadState,
@@ -169,6 +175,17 @@ async function statusCmd(): Promise<void> {
     );
   }
 
+  // Pending conversation
+  const pendingQ = await listPendingQuestions();
+  const unread = await unreadInboxCount();
+  if (pendingQ.length > 0 || unread > 0) {
+    console.log(
+      `\nconversation:     ${pendingQ.length} pending question(s) from agent, ${unread} unread reply/message from user`,
+    );
+    console.log(`  list questions: pnpm inbox`);
+    console.log(`  reply:          pnpm reply <id> <message>`);
+  }
+
   // Lineage
   try {
     await stat(LINEAGE);
@@ -224,6 +241,46 @@ async function whoamiCmd(): Promise<void> {
   } else {
     console.log("auth: (none) — run `pnpm login` or set ANTHROPIC_API_KEY");
   }
+}
+
+async function inboxCmd(): Promise<void> {
+  // Show both: pending questions the agent asked us, and letters it wrote.
+  const pending = await listPendingQuestions();
+  if (pending.length === 0) {
+    console.log("(no pending questions)");
+  } else {
+    console.log(`── ${pending.length} pending question(s) from the agent ──\n`);
+    for (const q of pending) {
+      console.log(`[${q.id}] asked ${q.askedAt}`);
+      console.log(`  reason: ${q.reason}`);
+      console.log(`  file:   ${q.file}`);
+      try {
+        const text = await readFile(q.file, "utf-8");
+        const body = text.replace(/^---[\s\S]*?---\n/, "").trim();
+        console.log(`\n${body}\n`);
+      } catch {
+        // ok
+      }
+      console.log("─────────────────────────────\n");
+    }
+    console.log("reply with: pnpm reply <id> <message>");
+  }
+}
+
+async function replyCmd(args: string[]): Promise<void> {
+  const id = args[0];
+  const text = args.slice(1).join(" ").trim();
+  if (!id || !text) {
+    console.error("usage: cli.ts reply <id> <message>");
+    console.error("       cli.ts reply new <message>    (unprompted message to agent)");
+    process.exit(2);
+  }
+  const result = await userReply({
+    inReplyTo: id === "new" ? undefined : id,
+    text,
+  });
+  console.log(`reply written: ${result.file}`);
+  console.log("the agent will see this next time it calls check_inbox");
 }
 
 async function selfTest(args: string[]): Promise<void> {
@@ -333,11 +390,24 @@ async function main(): Promise<void> {
     case "whoami":
       await whoamiCmd();
       break;
+    case "inbox":
+      await inboxCmd();
+      break;
+    case "reply":
+      await replyCmd(rest);
+      break;
     case "self-test":
       await selfTest(rest);
       break;
+    case "_mock-cycle":
+      // Internal command invoked by runSelfTest's mock-cycle check.
+      // Runs one cycle with mock LLM. Exit 0 = healthy, non-zero = broken.
+      await runMockCycleTest();
+      break;
     default:
-      console.error("usage: cli.ts <init|cycle|live|status|login|logout|whoami|self-test>");
+      console.error(
+        "usage: cli.ts <init|cycle|live|status|login|logout|whoami|inbox|reply|self-test>",
+      );
       process.exit(2);
   }
 }

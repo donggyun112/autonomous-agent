@@ -257,8 +257,17 @@ export async function checkInbox(options?: {
     });
   }
 
+  // Advance cursor to the latest message we actually SAW, not Date.now().
+  // If a new message arrives between readdir() and here, we don't want to
+  // skip it on the next check. (P2 fix: GPT-5.4 re-review)
   if (markRead && messages.length > 0) {
-    state.lastInboxReadAt = Date.now();
+    const latestMs = Math.max(
+      ...messages
+        .map((m) => Date.parse(m.receivedAt))
+        .filter((ms) => Number.isFinite(ms)),
+      state.lastInboxReadAt,
+    );
+    state.lastInboxReadAt = latestMs;
     await saveState(state);
   }
 

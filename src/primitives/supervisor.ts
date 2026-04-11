@@ -183,20 +183,21 @@ export function spawnSupervised(input: SpawnInput): ManagedRun {
     }
 
     // P1-4 fix: when the supervised process is `docker run`, killing the
-    // local docker CLI does NOT kill the container — the Docker daemon owns
-    // it. We fire-and-forget a `docker stop` with a short grace period to
-    // ensure the container is actually terminated. Without this, timed-out
-    // candidates can outlive their supervisor and hold mounted volumes.
+    // local docker CLI does NOT immediately kill the container. We find
+    // the container name from --name arg and fire-and-forget `docker stop`.
     if (command === "docker" && cmdArgs[0] === "run") {
-      // Find --name or use --rm (which auto-removes, but the container
-      // may still be running until stopped). Best effort: `docker stop`
-      // by container image+cmd — but we don't have the container ID.
-      // Fallback: rely on --rm cleaning up after SIGKILL of the docker CLI.
-      // Actually: when `docker run --rm` is used and the CLI receives
-      // SIGKILL, Docker daemon sends SIGTERM to the container, waits 10s,
-      // then SIGKILLs it. So --rm containers DO get cleaned up eventually.
-      // For extra safety, we could parse the container ID from stdout but
-      // that's complex. The --rm flag + CLI SIGKILL is sufficient for now.
+      const nameIdx = cmdArgs.indexOf("--name");
+      const containerName = nameIdx >= 0 ? cmdArgs[nameIdx + 1] : undefined;
+      if (containerName) {
+        try {
+          spawn("docker", ["stop", "-t", "3", containerName], {
+            stdio: "ignore",
+            detached: true,
+          }).unref();
+        } catch {
+          // best effort
+        }
+      }
     }
   };
 

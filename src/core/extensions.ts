@@ -92,8 +92,12 @@ export async function loadExtensionTools(): Promise<LoadedExtension[]> {
 
     const extensionName = entry.replace(/\.ts$/, "");
     try {
-      // Dynamic import with a file URL so tsx resolves it correctly.
-      const mod: Record<string, unknown> = await import(pathToFileURL(full).href);
+      // Dynamic import with a file URL. We append a query-string cache
+      // buster so Node's ESM loader treats each cycle's import as fresh.
+      // Without this, editing an extension via manage_self would not take
+      // effect until process restart — Node caches ESM by URL.
+      const url = `${pathToFileURL(full).href}?v=${Date.now()}`;
+      const mod: Record<string, unknown> = await import(url);
 
       // Accept either `tool` (single) or `tools` (array).
       const candidates: unknown[] = [];

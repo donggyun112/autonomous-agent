@@ -157,10 +157,16 @@ export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
   // Apply patches.
   const patched: string[] = [];
   for (const { relPath, content } of args.patch ?? []) {
-    if (relPath.includes("..")) {
-      throw new Error(`stageMolt: patch path escapes generation dir: ${relPath}`);
+    // Reject traversal AND absolute paths. path.join(base, "/abs") ignores
+    // base, so an absolute relPath would write outside the generation dir.
+    if (relPath.includes("..") || relPath.startsWith("/") || /^[A-Za-z]:/.test(relPath)) {
+      throw new Error(`stageMolt: patch path must be relative and inside generation dir: ${relPath}`);
     }
     const target = join(generationDir, relPath);
+    // Double-check the resolved target is actually inside generationDir.
+    if (!target.startsWith(generationDir + "/") && target !== generationDir) {
+      throw new Error(`stageMolt: resolved patch path escapes generation dir: ${relPath}`);
+    }
     await mkdir(join(target, ".."), { recursive: true });
     await writeFile(target, content, "utf-8");
     patched.push(relPath);

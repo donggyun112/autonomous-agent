@@ -13,6 +13,7 @@ import { join } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
 import { appendThought, readRecent, readToday } from "../memory/journal.js";
 import { extractKeys } from "../memory/keys.js";
+import { readPath } from "../primitives/read.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -271,6 +272,41 @@ const dreamMemory: Tool = {
       compressedContent: String(input.compressed),
     });
     return JSON.stringify(result);
+  },
+};
+
+// ── Read (filesystem access) ─────────────────────────────────────────────
+// Needed so the agent can retrieve truncated tool outputs persisted to
+// data/tool-outputs/ and read its own source files when introspecting.
+// (P2 fix: GPT-5.4 re-review — capToolResult points at read() but no
+// tool was registered.)
+
+const readFileTool: Tool = {
+  def: {
+    name: "read",
+    description:
+      "Read a file from your own world (data/ or src/). Use this to retrieve the full content of truncated tool outputs (saved to data/tool-outputs/), to inspect your own source code, or to read any file inside your project root. Path is relative to the project root.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Relative path from project root, e.g. 'data/tool-outputs/2026-04-12-web_search.txt' or 'src/core/cycle.ts'.",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  maxOutputChars: 16000,
+  handler: async (input) => {
+    const p = String(input.path ?? "");
+    if (!p) return "[error] path is required.";
+    try {
+      return await readPath(p);
+    } catch (err) {
+      return `[error] ${(err as Error).message}`;
+    }
   },
 };
 
@@ -857,6 +893,7 @@ const ALL_TOOLS: Tool[] = [
   recallRecentJournal,
   updateWhoAmI,
   checkContinuity,
+  readFileTool,
   scanRecent,
   dreamMemory,
   wikiListTool,

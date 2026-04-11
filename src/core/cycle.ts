@@ -35,6 +35,11 @@ import {
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
 import { compactIfNeeded } from "./compact.js";
+import {
+  extensionsSummary,
+  loadExtensionTools,
+  type LoadedExtension,
+} from "./extensions.js";
 import { runSleepConsolidation, type SleepReport } from "./sleep.js";
 import { SRC } from "../primitives/paths.js";
 
@@ -127,6 +132,15 @@ export async function runCycle(options?: {
     // ok
   }
 
+  // Step 1.5 — Load extension tools BEFORE building the system prompt, so
+  // the prompt can show which extensions are currently active.
+  let extensions: LoadedExtension[] = [];
+  try {
+    extensions = await loadExtensionTools();
+  } catch {
+    // ok
+  }
+
   // Step 1 — Build the system prompt from base + the current mode prompt.
   const base = await loadPrompt("base.md");
   const modePrompt = await loadPrompt(modePromptFile(state.mode));
@@ -160,6 +174,15 @@ export async function runCycle(options?: {
         ].join("\n")
       : "";
 
+  // Extensions section — show the agent what it has built and what is
+  // currently loaded. If nothing, a quiet reminder that building is an option.
+  const extensionsBlock = [
+    "---",
+    "## your extensions (tools you have built for yourself)",
+    "",
+    extensionsSummary(extensions),
+  ].join("\n");
+
   const systemPrompt = [
     base,
     "---",
@@ -168,6 +191,7 @@ export async function runCycle(options?: {
     whoAmI,
     driftSection,
     pressureNote,
+    extensionsBlock,
     "---",
     `## you are currently in state: ${state.mode}`,
     "",
@@ -179,7 +203,17 @@ export async function runCycle(options?: {
     .join("\n\n");
 
   // Step 2 — The tool set for this mode.
-  const tools: Tool[] = toolsForMode(state.mode);
+  const coreTools: Tool[] = toolsForMode(state.mode);
+  const extensionTools: Tool[] = [];
+  for (const ext of extensions) {
+    for (const tool of ext.tools) {
+      if (!tool.states || tool.states.includes(state.mode)) {
+        extensionTools.push(tool);
+      }
+    }
+  }
+  // Core tools first (agent's primary surface), extensions after.
+  const tools: Tool[] = [...coreTools, ...extensionTools];
   const defs = toolDefs(tools);
 
   // Step 3 — The conversation. The agent's first message to itself.

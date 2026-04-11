@@ -298,11 +298,13 @@ const readFileTool: Tool = {
       required: ["path"],
     },
   },
-  // Infinity — read tool must NEVER be truncated itself, otherwise large
-  // spilled outputs can't be recovered (the agent calls read to get the
-  // full content, but read's output gets capped too → infinite loop of
-  // truncated read previews). P2 round-3 fix.
-  maxOutputChars: Infinity,
+  // Large cap but not Infinity — Infinity would let a single read of
+  // memory.json blow out the LLM context window. 100K chars (~25K tokens)
+  // is enough for any reasonable spilled output while staying well within
+  // the 200K context window. The read tool itself is EXCLUDED from the
+  // capToolResult persist-to-disk path (see dispatchTool) so it doesn't
+  // trigger the truncation loop. P2 round-4 fix.
+  maxOutputChars: 100_000,
   handler: async (input) => {
     const p = String(input.path ?? "");
     if (!p) return "[error] path is required.";

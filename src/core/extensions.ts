@@ -152,21 +152,26 @@ export async function loadExtensionTools(): Promise<LoadedExtension[]> {
   return loaded;
 }
 
-// A small summary block for the system prompt so the agent can see
-// what it has built and what is currently loaded.
+// Progressive disclosure summary for the system prompt (Hermes pattern).
+// Don't dump all extension details inline — show counts and names only.
+// The agent can use manage_self(kind=list, scope=tool) for full details.
 export function extensionsSummary(loaded: LoadedExtension[]): string {
   if (loaded.length === 0) {
-    return "(you have not built any tool extensions yet — src/extensions/tools/ is empty)";
+    return "(no extensions yet — use manage_self to create tools in src/extensions/tools/)";
   }
-  const lines: string[] = [];
-  for (const ext of loaded) {
-    if (ext.error) {
-      lines.push(`  ✗ ${ext.name} — ${ext.error}`);
-      continue;
-    }
-    for (const tool of ext.tools) {
-      lines.push(`  ✓ ${tool.def.name} (from ${ext.name})`);
-    }
+  const ok = loaded.filter((e) => !e.error);
+  const errored = loaded.filter((e) => e.error);
+  const toolNames = ok.flatMap((e) => e.tools.map((t) => t.def.name));
+
+  const parts: string[] = [];
+  if (toolNames.length > 0) {
+    parts.push(`${toolNames.length} extension tool(s) loaded: ${toolNames.join(", ")}`);
   }
-  return lines.join("\n");
+  if (errored.length > 0) {
+    parts.push(
+      `${errored.length} failed to load: ${errored.map((e) => `${e.name} (${e.error})`).join("; ")}`,
+    );
+  }
+  parts.push("(use manage_self list scope=tool for details)");
+  return parts.join("\n");
 }

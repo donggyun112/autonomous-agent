@@ -18,6 +18,13 @@ const CHARS_PER_TOKEN = 4;
 const COMPACT_TRIGGER_TOKENS = 30_000;
 const KEEP_RECENT_TOKENS = 12_000;
 
+// Hermes pattern: old tool results in the middle of conversation are rarely
+// useful. Before the expensive LLM summarization pass, we do a cheap pre-prune:
+// tool_result blocks older than PRUNE_AFTER_TURNS turns get replaced with a
+// short placeholder. The LLM summarizer then works with much less noise.
+const PRUNE_AFTER_TURNS = 4;
+const PRUNED_PLACEHOLDER = "[Old tool output cleared to save context space]";
+
 function estimateTokens(messages: Message[]): number {
   let chars = 0;
   for (const m of messages) {
@@ -97,6 +104,34 @@ export type CompactResult = {
   newMessages: Message[];
 };
 
+// Pre-prune: replace old tool_result content with a placeholder.
+// Only touches messages in the first (older) half — recent ones stay intact.
+function prePruneToolOutputs(messages: Message[]): Message[] {
+  if (messages.length <= PRUNE_AFTER_TURNS * 2) return messages;
+  const boundary = messages.length - PRUNE_AFTER_TURNS * 2;
+  return messages.map((m, i) => {
+    if (i >= boundary) return m; // recent — don't touch
+    if (m.role !== "user") return m;
+    if (typeof m.content === "string") return m;
+    if (!Array.isArray(m.content)) return m;
+    // Check if it's a tool_result array
+    const hasToolResult = m.content.some(
+      (b) => "type" in b && b.type === "tool_result",
+    );
+    if (!hasToolResult) return m;
+    // Replace tool_result content with placeholder
+    return {
+      ...m,
+      content: m.content.map((b) => {
+        if ("type" in b && b.type === "tool_result") {
+          return { ...b, content: PRUNED_PLACEHOLDER };
+        }
+        return b;
+      }),
+    } as Message;
+  });
+}
+
 export async function compactIfNeeded(
   messages: Message[],
   systemPromptForContext: string,
@@ -106,15 +141,16 @@ export async function compactIfNeeded(
     return null;
   }
   if (messages.length < 4) {
-    // Nothing meaningful to compact.
     return null;
   }
 
   const splitAt = findSplit(messages);
   if (splitAt < 2) return null;
 
-  const older = messages.slice(0, splitAt);
-  const recent = messages.slice(splitAt);
+  // Pre-prune old tool outputs before LLM summarization (Hermes pattern).
+  const pruned = prePruneToolOutputs(messages);
+  const older = pruned.slice(0, splitAt);
+  const recent = pruned.slice(splitAt);
 
   const summaryPrompt = [
     "The agent is mid-cycle and the conversation has grown long.",

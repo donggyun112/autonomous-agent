@@ -114,6 +114,7 @@ export type ManageSelfAction =
   | { kind: "read"; scope: Scope; name: string }
   | { kind: "create"; scope: Scope; name: string; content: string; reason: string }
   | { kind: "update"; scope: Scope; name: string; content: string; reason: string }
+  | { kind: "patch"; scope: Scope; name: string; find: string; replace: string; reason: string }
   | { kind: "list_scopes" };
 
 export async function manageSelf(action: ManageSelfAction): Promise<string> {
@@ -150,6 +151,39 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
     } catch {
       return `[error] not found: ${relative(ROOT, target)}`;
     }
+  }
+
+  // patch — targeted find-and-replace inside a file. Hermes pattern: small
+  // edits without rewriting the whole file. Agent can fix a single line.
+  if (action.kind === "patch") {
+    let content: string;
+    try {
+      content = await readFile(target, "utf-8");
+    } catch {
+      return `[error] not found: ${relative(ROOT, target)}`;
+    }
+    if (!content.includes(action.find)) {
+      return `[error] find string not found in ${relative(ROOT, target)}. Did not patch.`;
+    }
+    const patched = content.replace(action.find, action.replace);
+    await mkdir(dirname(target), { recursive: true });
+    const backupPath = await backup(target);
+    await writeFile(target, patched, "utf-8");
+    await recordChange({
+      action: "patch",
+      scope: action.scope,
+      name: action.name,
+      reason: action.reason,
+      backupPath,
+    });
+    return [
+      `patched: ${relative(ROOT, target)}`,
+      `replaced ${action.find.length} chars → ${action.replace.length} chars`,
+      backupPath ? `backup: ${relative(ROOT, backupPath)}` : "",
+      `recorded in ${relative(ROOT, CHANGELOG)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   // create or update — both write, both back up + log.

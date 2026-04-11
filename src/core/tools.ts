@@ -938,10 +938,18 @@ export async function dispatchTool(
   }
   try {
     const out = await tool.handler(call.input);
-    // The read tool is EXCLUDED from capping — otherwise reading a spilled
-    // output just creates another spill (infinite loop). Its own 100K cap
-    // in the handler already bounds the output. Round-5 P2 fix.
-    if (call.name === "read") return out;
+    // The read tool is excluded from the PERSIST-TO-DISK cap path (which
+    // would create another spill file = infinite loop). Instead we enforce
+    // its maxOutputChars inline here with a simple truncation (no spill).
+    // Round-6 P2 fix: readPath returns the full file, so we must still
+    // bound the result to avoid blowing out the LLM context window.
+    if (call.name === "read") {
+      const readMax = tool.maxOutputChars ?? 100_000;
+      if (out.length > readMax) {
+        return out.slice(0, readMax) + `\n\n--- truncated at ${readMax} chars (file is ${out.length} chars) ---`;
+      }
+      return out;
+    }
     const max = tool.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
     return await capToolResult(call.name, out, max);
   } catch (err) {

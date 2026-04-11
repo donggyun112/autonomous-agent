@@ -357,39 +357,27 @@ async function live(): Promise<void> {
         `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
       );
 
-      // P1-5 fix + round-5 P1: after every cycle, check if a molt swap
-      // was queued. If so, we must stop the current container AND recreate
-      // it (not just restart) because Docker restart policies reuse the
-      // same container object pinned to its original image ID. `docker
-      // compose up` recreates, but `restart: unless-stopped` does not.
+      // Round-6 P1 fix: after molt_swap, we need to stop the container
+      // so the host can recreate it with the new image. Docker restart
+      // policies reuse the same container pinned to its original image ID,
+      // so a simple exit+restart doesn't pick up the retagged :current.
       //
-      // To handle this correctly we exec `docker compose up -d` from
-      // inside the container (docker.sock is mounted) which recreates
-      // the service from the newly-tagged :current image, then exit.
-      // If docker compose isn't available (host mode), fall back to
-      // exit 75 and hope the wrapper recreates.
+      // The correct flow: the container exits, and a host-side mechanism
+      // (scripts/supervise.sh, systemd, or manual `docker compose up -d
+      // --force-recreate`) brings up a new container from :current.
+      //
+      // We exit with code 42 (a distinctive code) and log instructions.
+      // The swap-pending marker stays on disk so the host watcher can see
+      // what generation to boot. maybeCleanupSwapMarker() clears it on
+      // next startup.
       const swapPending = await readPendingSwap();
       if (swapPending) {
         console.log(
           `\n[molt] swap pending: ${swapPending.generationId} — ${swapPending.reason}`,
         );
-        try {
-          // Try compose recreate first (works inside Docker deployment).
-          const { spawnSync } = await import("child_process");
-          const composeResult = spawnSync(
-            "docker",
-            ["compose", "up", "-d", "--force-recreate", "agent"],
-            { stdio: "inherit", timeout: 30_000 },
-          );
-          if (composeResult.status === 0) {
-            console.log("[molt] compose recreated with new image. exiting old container.");
-            process.exit(0);
-          }
-        } catch {
-          // docker compose not available — fall back to exit 75
-        }
-        console.log("[molt] exiting 75 for wrapper restart into new image…");
-        process.exit(75);
+        console.log("[molt] images retagged. exiting so host can recreate container.");
+        console.log("[molt] host: run `docker compose up -d --force-recreate agent`");
+        process.exit(42);
       }
     } catch (err) {
       console.error(`[live] cycle error: ${(err as Error).message}`);

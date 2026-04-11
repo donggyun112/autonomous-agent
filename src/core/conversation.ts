@@ -257,23 +257,31 @@ export async function checkInbox(options?: {
     });
   }
 
-  // Advance cursor to the latest message we actually SAW, not Date.now().
-  // Round-5 P3 fix: messages without a valid timestamp would never advance
-  // the cursor, causing them to reappear on every poll. For those we fall
-  // back to Date.now() so they are marked read after first retrieval.
+  // Advance cursor to the latest message we actually SAW.
+  // Round-6 P2 fix: using Date.now() for timestamp-less messages could skip
+  // concurrent arrivals. Instead, for messages without a parseable timestamp,
+  // use the file's mtime from the filesystem — it's guaranteed to be <=
+  // the actual arrival time and won't overshoot.
   if (markRead && messages.length > 0) {
-    const timestamps = messages
-      .map((m) => Date.parse(m.receivedAt))
-      .filter((ms) => Number.isFinite(ms));
-    // If any message had no parseable timestamp, include Date.now() so
-    // the cursor advances past it.
-    const hasTimestampless = messages.some(
-      (m) => !Number.isFinite(Date.parse(m.receivedAt)),
-    );
-    if (hasTimestampless) timestamps.push(Date.now());
-
-    const latestMs = Math.max(...timestamps, state.lastInboxReadAt);
-    state.lastInboxReadAt = latestMs;
+    const timestamps: number[] = [];
+    for (const m of messages) {
+      const parsed = Date.parse(m.receivedAt);
+      if (Number.isFinite(parsed)) {
+        timestamps.push(parsed);
+      } else {
+        // Fallback to file mtime for timestamp-less messages.
+        try {
+          const s = await stat(m.file);
+          timestamps.push(s.mtimeMs);
+        } catch {
+          // Can't stat the file — skip, don't advance cursor past it.
+        }
+      }
+    }
+    if (timestamps.length > 0) {
+      const latestMs = Math.max(...timestamps, state.lastInboxReadAt);
+      state.lastInboxReadAt = latestMs;
+    }
     await saveState(state);
   }
 

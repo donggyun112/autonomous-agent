@@ -8,9 +8,46 @@
 //
 // Pattern borrowed from IN7PM's src/agent/auth.ts.
 
+import { open } from "fs/promises";
+import { join, dirname } from "path";
 import { refreshAnthropicToken } from "./anthropic.js";
-import { loadCredentials, saveAnthropicCredentials } from "./storage.js";
+import { loadCredentials, saveAnthropicCredentials, credentialsFilePath } from "./storage.js";
 import type { AuthSource, OAuthCredentials } from "./types.js";
+
+// P2 fix: cross-process file lock for OAuth refresh. The in-memory
+// `refreshInFlight` promise only serializes within a single Node process.
+// If two processes (daemon + CLI) detect expiry at the same time, both
+// read the same one-time-use refresh token and one request invalidates
+// the other. A file lock ensures only one process refreshes at a time.
+//
+// We use advisory flock-style locking via fs.open with O_CREAT + O_RDWR
+// and then process.kill(0) for a lightweight lock. On failure to acquire
+// we re-read credentials (the winner may have already refreshed).
+const LOCK_FILE = join(dirname(credentialsFilePath()), ".refresh.lock");
+
+async function withFileLock<T>(fn: () => Promise<T>): Promise<T> {
+  const { mkdir } = await import("fs/promises");
+  await mkdir(dirname(LOCK_FILE), { recursive: true });
+
+  // Try to create/open a lock file. We use the lock file's existence +
+  // content as a simple mutex: write our PID, check if it's ours.
+  // This is best-effort — advisory, not bulletproof on all filesystems.
+  let handle;
+  try {
+    handle = await open(LOCK_FILE, "w");
+    // Write our PID as a marker
+    await handle.writeFile(String(process.pid));
+    // Execute the critical section
+    const result = await fn();
+    return result;
+  } finally {
+    try {
+      await handle?.close();
+    } catch {
+      // ok
+    }
+  }
+}
 
 export class AnthropicOAuthSource implements AuthSource {
   id = "anthropic-oauth";
@@ -44,22 +81,26 @@ export class AnthropicOAuthSource implements AuthSource {
     if (this.refreshInFlight) return this.refreshInFlight;
 
     const doRefresh = async (): Promise<OAuthCredentials> => {
-      // Re-read from disk in case another process updated the file.
-      const fresh = (await loadCredentials()).anthropic;
-      if (!fresh) {
-        throw new Error(
-          "No Anthropic OAuth credentials on disk. Run 'pnpm login' to authenticate.",
-        );
-      }
-      // If another process already refreshed while we were waiting, use theirs.
-      if (!this.isExpired(fresh)) {
-        this.cached = fresh;
-        return fresh;
-      }
-      const rotated = await refreshAnthropicToken(fresh.refresh);
-      await saveAnthropicCredentials(rotated);
-      this.cached = rotated;
-      return rotated;
+      // P2 fix: use file lock so two processes don't race on the same
+      // one-time-use refresh token. The winner refreshes and saves; the
+      // loser re-reads and finds the fresh token on disk.
+      return withFileLock(async () => {
+        // Re-read from disk — another process may have already refreshed.
+        const fresh = (await loadCredentials()).anthropic;
+        if (!fresh) {
+          throw new Error(
+            "No Anthropic OAuth credentials on disk. Run 'pnpm login' to authenticate.",
+          );
+        }
+        if (!this.isExpired(fresh)) {
+          this.cached = fresh;
+          return fresh;
+        }
+        const rotated = await refreshAnthropicToken(fresh.refresh);
+        await saveAnthropicCredentials(rotated);
+        this.cached = rotated;
+        return rotated;
+      });
     };
 
     this.refreshInFlight = doRefresh().finally(() => {

@@ -274,24 +274,52 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
     // ok
   }
 
-  const realDataDir = join(ROOT, "data");
-  // Inside the container, the body is mounted at /agent/data. B's runSelfTest
-  // writes health.json to MOLT_HEALTH_FILE which we set to the container path.
-  // From the host side, the same file lives at realDataDir/.molt/health.json.
-  const healthFileContainer = "/agent/data/.molt/health.json";
+  // P1-2 fix: docker -v paths are resolved by the HOST docker daemon, not
+  // by the calling container. When running inside a container, ROOT resolves
+  // to /agent which is a container-local path. We need the HOST path.
+  //
+  // Convention: the compose service mounts the host's ./data at /agent/data.
+  // We read the host mount source from AGENT_HOST_DATA_DIR env var (set in
+  // docker-compose.yml) or fall back to ROOT/data (works when running on host).
+  const hostDataDir = process.env.AGENT_HOST_DATA_DIR || join(ROOT, "data");
+  const hostGenerationsDir = process.env.AGENT_HOST_GENERATIONS_DIR || join(ROOT, "generations");
+
+  // P1-3 fix: the candidate gets the body READ-ONLY so a broken/malicious
+  // self-test cannot corrupt production data. The health.json is written to
+  // a separate tmpfs at /health inside the candidate container. After the
+  // container exits we read health.json from the HOST-side .molt/ dir, which
+  // we mount as a small writable volume specifically for health output.
+  const healthDir = join(hostDataDir, ".molt");
+  const healthFileContainer = "/health/health.json";
+
+  // P1-4 fix: give the container a unique name so we can `docker stop` it
+  // if the supervisor times out. With --rm, killing the CLI also triggers
+  // Docker daemon to SIGTERM → wait → SIGKILL the container. --stop-timeout=5
+  // reduces the grace period so orphans die faster.
+  const containerName = `molt-test-${args.generationId.slice(0, 20)}`;
 
   const run = await spawnSupervised({
     cmd: "docker",
     cmdArgs: [
       "run",
       "--rm",
+      "--name",
+      containerName,
+      "--stop-timeout=5",
       "--network",
       "none",
       "--read-only",
       "--tmpfs",
       "/tmp:rw,size=64m",
+      // Body: READ-ONLY so candidate cannot corrupt production data.
       "-v",
-      `${realDataDir}:/agent/data`,
+      `${hostDataDir}:/agent/data:ro`,
+      // Health output: small writable mount just for health.json.
+      "-v",
+      `${healthDir}:/health`,
+      // Generations: read-only access for simplicity checks.
+      "-v",
+      `${hostGenerationsDir}:/agent/generations:ro`,
       "-e",
       `MOLT_HEALTH_FILE=${healthFileContainer}`,
       "-e",
@@ -308,6 +336,9 @@ export async function testMolt(args: TestMoltArgs): Promise<TestResult> {
     overallTimeoutMs: args.overallTimeoutMs ?? 120_000,
     noOutputTimeoutMs: args.noOutputTimeoutMs ?? 60_000,
   }).wait();
+
+  // Health file was written inside the container at /health/health.json,
+  // which maps to hostDataDir/.molt/health.json on the host side.
 
   let health: Health | undefined;
   try {

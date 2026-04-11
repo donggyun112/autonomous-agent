@@ -337,14 +337,18 @@ async function live(): Promise<void> {
       continue;
     }
 
-    // If the agent is in SLEEP and a wake time has passed, transition to WAKE
-    // before running the cycle so the next cycle picks up in WAKE.
+    // If the agent is in SLEEP and a wake time has passed, DO NOT flip to
+    // WAKE directly — that would skip runSleepConsolidation(). Instead,
+    // leave mode=SLEEP and let runCycle() hit the SLEEP branch, which runs
+    // consolidation (dream, prune, wiki, whoAmI integrate, etc.) and THEN
+    // transitions to WAKE with awakeMs reset. The wakeAfter field is only
+    // cleared after consolidation runs. (P1-1 fix: GPT-5.4 review)
     if (state.mode === "SLEEP" && state.wakeAfter && Date.now() >= state.wakeAfter) {
-      state.mode = "WAKE";
+      // Clear wakeAfter so the daemon doesn't keep looping without acting,
+      // but keep mode=SLEEP so consolidation fires.
       state.wakeAfter = 0;
-      state.lastTransitionReason = "scheduled wake";
-      state.lastTransition = Date.now();
       await saveState(state);
+      // runCycle() will see mode=SLEEP → run consolidation → transition WAKE.
     }
 
     try {
@@ -352,6 +356,19 @@ async function live(): Promise<void> {
       console.log(
         `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
       );
+
+      // P1-5 fix: after every cycle, check if a molt swap was queued during
+      // the cycle. If so, exit 75 so compose restarts into the new image.
+      // Without this, the daemon just keeps running the old container and
+      // the molt never takes effect.
+      const swapPending = await readPendingSwap();
+      if (swapPending) {
+        console.log(
+          `\n[molt] swap pending: ${swapPending.generationId} — ${swapPending.reason}`,
+        );
+        console.log("[molt] exiting for compose restart into new image…");
+        process.exit(75);
+      }
     } catch (err) {
       console.error(`[live] cycle error: ${(err as Error).message}`);
       // Sleep a bit before retrying so we don't burn API on a stuck error.

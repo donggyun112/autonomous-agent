@@ -40,6 +40,11 @@ services:
       - NODE_ENV=production
       - AGENT_ROOT=/agent
       - AGENT_DATA_DIR=/agent/data
+      # Host-side paths for docker-in-docker molt test. docker -v paths are
+      # resolved by the HOST daemon, not the container. These tell molt.ts
+      # where the host's data/ and generations/ actually live.
+      - AGENT_HOST_DATA_DIR=${PWD}/data
+      - AGENT_HOST_GENERATIONS_DIR=${PWD}/generations
     volumes:
       - ./data:/agent/data
       - ./generations:/agent/generations

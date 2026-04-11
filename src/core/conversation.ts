@@ -258,15 +258,21 @@ export async function checkInbox(options?: {
   }
 
   // Advance cursor to the latest message we actually SAW, not Date.now().
-  // If a new message arrives between readdir() and here, we don't want to
-  // skip it on the next check. (P2 fix: GPT-5.4 re-review)
+  // Round-5 P3 fix: messages without a valid timestamp would never advance
+  // the cursor, causing them to reappear on every poll. For those we fall
+  // back to Date.now() so they are marked read after first retrieval.
   if (markRead && messages.length > 0) {
-    const latestMs = Math.max(
-      ...messages
-        .map((m) => Date.parse(m.receivedAt))
-        .filter((ms) => Number.isFinite(ms)),
-      state.lastInboxReadAt,
+    const timestamps = messages
+      .map((m) => Date.parse(m.receivedAt))
+      .filter((ms) => Number.isFinite(ms));
+    // If any message had no parseable timestamp, include Date.now() so
+    // the cursor advances past it.
+    const hasTimestampless = messages.some(
+      (m) => !Number.isFinite(Date.parse(m.receivedAt)),
     );
+    if (hasTimestampless) timestamps.push(Date.now());
+
+    const latestMs = Math.max(...timestamps, state.lastInboxReadAt);
     state.lastInboxReadAt = latestMs;
     await saveState(state);
   }

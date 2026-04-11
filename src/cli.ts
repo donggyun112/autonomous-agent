@@ -357,16 +357,38 @@ async function live(): Promise<void> {
         `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
       );
 
-      // P1-5 fix: after every cycle, check if a molt swap was queued during
-      // the cycle. If so, exit 75 so compose restarts into the new image.
-      // Without this, the daemon just keeps running the old container and
-      // the molt never takes effect.
+      // P1-5 fix + round-5 P1: after every cycle, check if a molt swap
+      // was queued. If so, we must stop the current container AND recreate
+      // it (not just restart) because Docker restart policies reuse the
+      // same container object pinned to its original image ID. `docker
+      // compose up` recreates, but `restart: unless-stopped` does not.
+      //
+      // To handle this correctly we exec `docker compose up -d` from
+      // inside the container (docker.sock is mounted) which recreates
+      // the service from the newly-tagged :current image, then exit.
+      // If docker compose isn't available (host mode), fall back to
+      // exit 75 and hope the wrapper recreates.
       const swapPending = await readPendingSwap();
       if (swapPending) {
         console.log(
           `\n[molt] swap pending: ${swapPending.generationId} — ${swapPending.reason}`,
         );
-        console.log("[molt] exiting for compose restart into new image…");
+        try {
+          // Try compose recreate first (works inside Docker deployment).
+          const { spawnSync } = await import("child_process");
+          const composeResult = spawnSync(
+            "docker",
+            ["compose", "up", "-d", "--force-recreate", "agent"],
+            { stdio: "inherit", timeout: 30_000 },
+          );
+          if (composeResult.status === 0) {
+            console.log("[molt] compose recreated with new image. exiting old container.");
+            process.exit(0);
+          }
+        } catch {
+          // docker compose not available — fall back to exit 75
+        }
+        console.log("[molt] exiting 75 for wrapper restart into new image…");
         process.exit(75);
       }
     } catch (err) {

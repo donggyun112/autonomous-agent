@@ -938,6 +938,10 @@ export async function dispatchTool(
   }
   try {
     const out = await tool.handler(call.input);
+    // The read tool is EXCLUDED from capping — otherwise reading a spilled
+    // output just creates another spill (infinite loop). Its own 100K cap
+    // in the handler already bounds the output. Round-5 P2 fix.
+    if (call.name === "read") return out;
     const max = tool.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
     return await capToolResult(call.name, out, max);
   } catch (err) {

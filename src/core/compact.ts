@@ -105,12 +105,13 @@ export type CompactResult = {
 };
 
 // Pre-prune: replace old tool_result content with a placeholder.
-// Only touches messages in the first (older) half — recent ones stay intact.
-function prePruneToolOutputs(messages: Message[]): Message[] {
-  if (messages.length <= PRUNE_AFTER_TURNS * 2) return messages;
-  const boundary = messages.length - PRUNE_AFTER_TURNS * 2;
+// Only touches messages before splitAt — the retained "recent" slice is
+// never modified. Round-5 P2 fix: boundary was messages.length-based,
+// which could prune tool outputs inside the retained slice.
+function prePruneToolOutputs(messages: Message[], splitAt: number): Message[] {
+  if (splitAt <= 0) return messages;
   return messages.map((m, i) => {
-    if (i >= boundary) return m; // recent — don't touch
+    if (i >= splitAt) return m; // retained verbatim — don't touch
     if (m.role !== "user") return m;
     if (typeof m.content === "string") return m;
     if (!Array.isArray(m.content)) return m;
@@ -148,7 +149,8 @@ export async function compactIfNeeded(
   if (splitAt < 2) return null;
 
   // Pre-prune old tool outputs before LLM summarization (Hermes pattern).
-  const pruned = prePruneToolOutputs(messages);
+  // Pass splitAt so only the to-be-summarized slice is pruned.
+  const pruned = prePruneToolOutputs(messages, splitAt);
   const older = pruned.slice(0, splitAt);
   const recent = pruned.slice(splitAt);
 

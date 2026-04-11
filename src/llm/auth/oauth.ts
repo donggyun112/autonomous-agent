@@ -29,14 +29,17 @@ const LOCK_DIR = join(dirname(credentialsFilePath()), ".refresh.lock.d");
 // EEXIST if the directory already exists, giving us a reliable mutex
 // that works across processes on all filesystems (unlike flock/open("w")).
 // Stale locks (from crashed processes) are broken after STALE_LOCK_MS.
-const STALE_LOCK_MS = 30_000;
+const STALE_LOCK_MS = 60_000; // 60s — must exceed refresh network timeout (30s)
 
 async function withFileLock<T>(fn: () => Promise<T>): Promise<T> {
   const { mkdir: mkd, rm, stat: fstat, writeFile: wf } = await import("fs/promises");
   await mkd(dirname(LOCK_DIR), { recursive: true });
 
-  const maxAttempts = 20;
-  const retryMs = 500;
+  // P1 round-3 fix: maxAttempts * retryMs must exceed the refresh network
+  // timeout (30s in anthropic.ts). Previous 20*500ms=10s was too short —
+  // a slow but healthy refresh caused the loser to give up prematurely.
+  const maxAttempts = 80;
+  const retryMs = 500; // 80 * 500ms = 40s > 30s network timeout
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {

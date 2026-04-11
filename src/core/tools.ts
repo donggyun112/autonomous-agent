@@ -298,7 +298,11 @@ const readFileTool: Tool = {
       required: ["path"],
     },
   },
-  maxOutputChars: 16000,
+  // Infinity — read tool must NEVER be truncated itself, otherwise large
+  // spilled outputs can't be recovered (the agent calls read to get the
+  // full content, but read's output gets capped too → infinite loop of
+  // truncated read previews). P2 round-3 fix.
+  maxOutputChars: Infinity,
   handler: async (input) => {
     const p = String(input.path ?? "");
     if (!p) return "[error] path is required.";

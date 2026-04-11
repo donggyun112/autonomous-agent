@@ -92,11 +92,14 @@ export async function loadExtensionTools(): Promise<LoadedExtension[]> {
 
     const extensionName = entry.replace(/\.ts$/, "");
     try {
-      // Dynamic import with a file URL. We append a query-string cache
-      // buster so Node's ESM loader treats each cycle's import as fresh.
-      // Without this, editing an extension via manage_self would not take
-      // effect until process restart — Node caches ESM by URL.
-      const url = `${pathToFileURL(full).href}?v=${Date.now()}`;
+      // ESM modules are cached by URL. We want edits via manage_self to
+      // take effect on the next cycle, but we do NOT want a new module
+      // instance every cycle (that leaks memory + re-runs side effects).
+      // Solution: use the file's mtime as the cache key. Same mtime = same
+      // module. Changed mtime = new import.
+      const st = await stat(full);
+      const mtimeKey = st.mtimeMs.toString(36);
+      const url = `${pathToFileURL(full).href}?v=${mtimeKey}`;
       const mod: Record<string, unknown> = await import(url);
 
       // Accept either `tool` (single) or `tools` (array).

@@ -44,6 +44,12 @@ import {
   loadExtensionTools,
   type LoadedExtension,
 } from "./extensions.js";
+import {
+  appendMessage,
+  clearSession,
+  loadSession,
+  replaceSession,
+} from "./session-store.js";
 import { runSleepConsolidation, type SleepReport } from "./sleep.js";
 import { SRC } from "../primitives/paths.js";
 
@@ -99,9 +105,10 @@ export async function runCycle(options?: {
     state = await transition(state, "SLEEP", `forced by sleep pressure (${pressure.combined.toFixed(2)})`);
   }
 
-  // SLEEP state: do not run an LLM tool loop. Instead the system performs
-  // automatic consolidation operations on the agent's memory and identity.
+  // SLEEP state: clear session (sleep is the natural session boundary),
+  // then run consolidation.
   if (state.mode === "SLEEP") {
+    await clearSession();
     observer?.onTurnStart?.(0, "SLEEP");
     let sleepReport: SleepReport | undefined;
     try {
@@ -271,12 +278,19 @@ export async function runCycle(options?: {
   // from a previous cycle.
   resetCompactionState();
 
-  // Step 3 — The conversation. The agent's first message to itself.
-  const opening: Message = {
-    role: "user",
-    content: `You are now ${state.mode}. Begin.`,
-  };
-  const messages: Message[] = [opening];
+  // Step 3 — Restore or start the conversation.
+  // Session persistence: messages are saved to data/session.jsonl on every
+  // turn. On restart, we reload them so the agent continues mid-thought.
+  // Only start fresh if no prior session exists.
+  let messages: Message[] = await loadSession();
+  if (messages.length === 0) {
+    const opening: Message = {
+      role: "user",
+      content: `You are now ${state.mode}. Begin.`,
+    };
+    messages = [opening];
+    await appendMessage(opening);
+  }
 
   let toolCallCount = 0;
   let result: CycleResult["reason"] = "turn_budget";
@@ -327,7 +341,9 @@ export async function runCycle(options?: {
         input: call.input,
       });
     }
-    messages.push({ role: "assistant", content: assistantBlocks });
+    const assistantMsg: Message = { role: "assistant", content: assistantBlocks };
+    messages.push(assistantMsg);
+    await appendMessage(assistantMsg);
 
     // Execute every tool call and collect results.
     const toolResults: Array<{
@@ -413,7 +429,9 @@ export async function runCycle(options?: {
       });
     }
 
-    messages.push({ role: "user", content: toolResults });
+    const toolResultMsg: Message = { role: "user", content: toolResults };
+    messages.push(toolResultMsg);
+    await appendMessage(toolResultMsg);
 
     // Auto-compact: if the conversation has grown long, summarize the older
     // half so we can continue without blowing the context. Cheap LLM call.
@@ -422,6 +440,8 @@ export async function runCycle(options?: {
       if (compacted) {
         messages.length = 0;
         messages.push(...compacted.newMessages);
+        // Replace session file with compacted version.
+        await replaceSession(compacted.newMessages);
         // Surface the compact event to the observer for any UI watching.
         observer?.onToolStart?.(
           "(auto-compact)",
@@ -442,7 +462,7 @@ export async function runCycle(options?: {
       // and keep thinking until pressure rises naturally.
       if (transitionRequested.to === "SLEEP" && pressure.combined < MIN_SLEEP_THRESHOLD) {
         // Reject the transition — inject a tool_result telling the agent.
-        messages.push({
+        const rejectMsg: Message = {
           role: "user",
           content: [
             {
@@ -451,7 +471,9 @@ export async function runCycle(options?: {
               content: `Your body is not tired enough to sleep yet. Sleep pressure is ${pressure.combined.toFixed(2)} (${pressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required. Stay awake and keep thinking — sleep will come when you need it.`,
             },
           ],
-        });
+        };
+        messages.push(rejectMsg);
+        await appendMessage(rejectMsg);
         // Don't break — continue the turn loop.
         continue;
       }

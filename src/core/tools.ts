@@ -15,6 +15,7 @@ import { appendThought, readRecent, readToday } from "../memory/journal.js";
 import { extractKeys } from "../memory/keys.js";
 import { readPath } from "../primitives/read.js";
 import { actionStats, readRecentActions } from "./action-log.js";
+import { saveCuriosityQuestion } from "./curiosity.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -350,6 +351,30 @@ const reviewActionsTool: Tool = {
     // Return last 50 entries to avoid blowing context.
     const recent = entries.slice(-50);
     return JSON.stringify(recent, null, 2);
+  },
+};
+
+// ── Curiosity question ───────────────────────────────────────────────────
+
+const saveCuriosityTool: Tool = {
+  states: ["REFLECT"],
+  def: {
+    name: "leave_question",
+    description:
+      "Leave a question for your future self. Write one thing you are curious about but have not yet explored — it does not have to be about yourself, it can be about anything. This question will be shown to you at the start of your next WAKE cycle. Use this at the end of REFLECT, before transitioning to SLEEP.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "The question, in your own voice." },
+      },
+      required: ["question"],
+    },
+  },
+  handler: async (input) => {
+    const q = String(input.question ?? "").trim();
+    if (!q) return "[error] question is required";
+    await saveCuriosityQuestion(q);
+    return `question saved. it will surface at the start of your next WAKE.`;
   },
 };
 
@@ -944,6 +969,7 @@ const ALL_TOOLS: Tool[] = [
   checkContinuity,
   readFileTool,
   reviewActionsTool,
+  saveCuriosityTool,
   scanRecent,
   dreamMemory,
   wikiListTool,

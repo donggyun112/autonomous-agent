@@ -36,6 +36,7 @@ import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
 import { compactIfNeeded, resetCompactionState } from "./compact.js";
+import { buildCuriosityBlocks } from "./curiosity.js";
 import {
   extensionsSummary,
   loadExtensionTools,
@@ -184,6 +185,14 @@ export async function runCycle(options?: {
     extensionsSummary(extensions),
   ].join("\n");
 
+  // Curiosity blocks — random stimuli to prevent repetitive thinking.
+  let curiosityBlocks = "";
+  try {
+    curiosityBlocks = await buildCuriosityBlocks(state.mode);
+  } catch {
+    // curiosity failure should never block the cycle
+  }
+
   const systemPrompt = [
     base,
     "---",
@@ -193,6 +202,7 @@ export async function runCycle(options?: {
     driftSection,
     pressureNote,
     extensionsBlock,
+    curiosityBlocks,
     "---",
     `## you are currently in state: ${state.mode}`,
     "",

@@ -133,6 +133,48 @@ function prePruneToolOutputs(messages: Message[], splitAt: number): Message[] {
   });
 }
 
+// Incremental summary state. Hermes/OpenClaw/IN7PM all preserve the previous
+// summary and UPDATE it rather than rewriting from scratch. This prevents
+// information loss across multiple compactions in a single long cycle.
+// The state lives for the lifetime of one cycle (reset when cycle ends).
+let _previousSummary: string | null = null;
+
+export function resetCompactionState(): void {
+  _previousSummary = null;
+}
+
+// Contemplative summary template — our equivalent of IN7PM's structured
+// Goal/Progress/Decisions template but for a self-discovering agent.
+const FRESH_SUMMARY_PROMPT = `The agent is mid-cycle and the conversation has grown long.
+Below is the older portion of its inner messages. Summarize it using this structure:
+
+## Thread
+What line of thought was the agent following? What question was it pursuing?
+
+## Shifts
+Did anything change in the agent's self-understanding? What moved?
+
+## Open questions
+What remains unanswered or unresolved?
+
+## Mood
+What is the emotional/tonal quality of the thinking so far?
+
+Write in the agent's own first-person voice. Be terse but faithful.
+This summary will replace the older messages so the agent can continue without forgetting.`;
+
+const UPDATE_SUMMARY_PROMPT = `The agent's conversation has grown long again. Below are NEW messages since the last compaction.
+A previous summary exists — UPDATE it, don't rewrite from scratch.
+
+Rules:
+- PRESERVE all information from the previous summary
+- ADD new shifts, questions, and mood changes from the new messages
+- UPDATE the Thread if the direction changed
+- Move answered questions out of Open questions
+- Keep the same 4-section structure (Thread / Shifts / Open questions / Mood)
+
+Write in the agent's own first-person voice.`;
+
 export async function compactIfNeeded(
   messages: Message[],
   systemPromptForContext: string,
@@ -149,30 +191,43 @@ export async function compactIfNeeded(
   if (splitAt < 2) return null;
 
   // Pre-prune old tool outputs before LLM summarization (Hermes pattern).
-  // Pass splitAt so only the to-be-summarized slice is pruned.
   const pruned = prePruneToolOutputs(messages, splitAt);
   const older = pruned.slice(0, splitAt);
   const recent = pruned.slice(splitAt);
 
-  const summaryPrompt = [
-    "The agent is mid-cycle and the conversation has grown long.",
-    "Below is the older half of its inner messages. Summarize it as one short paragraph in the agent's own first-person voice — what it thought, what it learned, what it set in motion.",
-    "Be terse but faithful. The summary will replace these messages so the agent can continue without forgetting them entirely.",
+  // Build the prompt — incremental if we have a previous summary, fresh otherwise.
+  const isIncremental = _previousSummary !== null;
+  const promptParts = [
+    isIncremental ? UPDATE_SUMMARY_PROMPT : FRESH_SUMMARY_PROMPT,
+  ];
+  if (isIncremental) {
+    promptParts.push(
+      "",
+      "--- previous summary ---",
+      _previousSummary!,
+      "--- end previous summary ---",
+    );
+  }
+  promptParts.push(
     "",
     "--- older messages ---",
     messagesAsText(older),
     "--- end ---",
-  ].join("\n");
+  );
 
   const result = await think({
     systemPrompt: systemPromptForContext,
-    messages: [{ role: "user", content: summaryPrompt }],
-    maxTokens: 1024,
+    messages: [{ role: "user", content: promptParts.join("\n") }],
+    maxTokens: 1536,
   });
+
+  const summaryText = result.text.trim();
+  // Save for next compaction within this cycle.
+  _previousSummary = summaryText;
 
   const synthetic: Message = {
     role: "user",
-    content: `[earlier in this cycle, you thought:]\n\n${result.text.trim()}`,
+    content: `[earlier in this cycle, you thought:]\n\n${summaryText}`,
   };
 
   const newMessages: Message[] = [synthetic, ...recent];

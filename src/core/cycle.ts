@@ -34,7 +34,7 @@ import {
 } from "./state.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
-import { compactIfNeeded } from "./compact.js";
+import { compactIfNeeded, resetCompactionState } from "./compact.js";
 import {
   extensionsSummary,
   loadExtensionTools,
@@ -215,6 +215,10 @@ export async function runCycle(options?: {
   // Core tools first (agent's primary surface), extensions after.
   const tools: Tool[] = [...coreTools, ...extensionTools];
   const defs = toolDefs(tools);
+
+  // Reset compaction state so incremental summaries don't carry over
+  // from a previous cycle.
+  resetCompactionState();
 
   // Step 3 — The conversation. The agent's first message to itself.
   const opening: Message = {

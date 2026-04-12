@@ -21,8 +21,11 @@ echo "[supervise] Ctrl+C to stop"
 while true; do
   echo "[supervise] starting container..."
   # Run in foreground so we get the exit code.
-  docker compose up --exit-code-from agent agent || true
+  # Round-8 P1 fix: capture exit code BEFORE || true eats it.
+  set +e
+  docker compose up --exit-code-from agent agent
   EXIT_CODE=$?
+  set -e
 
   echo "[supervise] container exited with code $EXIT_CODE"
 

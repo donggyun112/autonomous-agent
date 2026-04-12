@@ -335,17 +335,24 @@ export async function unreadInboxCount(): Promise<number> {
     const state = await loadState();
     let count = 0;
     for (const name of files) {
+      const full = join(IN_DIR, name);
       try {
-        const text = await readFile(join(IN_DIR, name), "utf-8");
+        const text = await readFile(full, "utf-8");
         const fmMatch = text.match(/received_at:\s*(\S+)/);
-        if (!fmMatch) {
-          count += 1;
-          continue;
+        let ms: number = NaN;
+        if (fmMatch) {
+          ms = Date.parse(fmMatch[1]);
         }
-        const ms = Date.parse(fmMatch[1]);
+        // Round-8 P2 fix: use mtime fallback for timestamp-less files,
+        // same logic as checkInbox skip. Keeps status count aligned.
         if (!Number.isFinite(ms)) {
-          count += 1;
-          continue;
+          try {
+            const fileStat = await stat(full);
+            ms = fileStat.mtimeMs;
+          } catch {
+            count += 1; // can't stat — count as unread
+            continue;
+          }
         }
         if (ms > state.lastInboxReadAt) count += 1;
       } catch {

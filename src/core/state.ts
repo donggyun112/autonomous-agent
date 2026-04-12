@@ -85,6 +85,10 @@ export const MAX_AWAKE_MS = 16 * 60 * 60 * 1000; // 16 hours
 export const FORCE_THRESHOLD = 1.0;
 export const STRONG_THRESHOLD = 0.8;
 export const SOFT_THRESHOLD = 0.5;
+// Minimum pressure before sleep is physiologically possible. Below this,
+// the agent's body simply hasn't accumulated enough adenosine to sleep.
+// Like a human who can't nap 30 minutes after waking up.
+export const MIN_SLEEP_THRESHOLD = 0.3;
 
 export type SleepPressure = {
   homeostatic: number; // 0..1, time-since-last-sleep

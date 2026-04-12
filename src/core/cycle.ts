@@ -24,6 +24,7 @@ import { think, type Message, type ThinkEventSink } from "../llm/client.js";
 import {
   calculateSleepPressure,
   FORCE_THRESHOLD,
+  MIN_SLEEP_THRESHOLD,
   loadState,
   saveState,
   tickAwake,
@@ -421,10 +422,27 @@ export async function runCycle(options?: {
     observer?.onTurnEnd?.(turn);
 
     if (transitionRequested) {
+      // Sleep gate: the agent cannot sleep if pressure is too low.
+      // Like a human who can't nap 30 minutes after waking — the body
+      // hasn't accumulated enough adenosine. The agent must stay awake
+      // and keep thinking until pressure rises naturally.
+      if (transitionRequested.to === "SLEEP" && pressure.combined < MIN_SLEEP_THRESHOLD) {
+        // Reject the transition — inject a tool_result telling the agent.
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "tool_result" as const,
+              tool_use_id: "sleep-rejected",
+              content: `Your body is not tired enough to sleep yet. Sleep pressure is ${pressure.combined.toFixed(2)} (${pressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required. Stay awake and keep thinking — sleep will come when you need it.`,
+            },
+          ],
+        });
+        // Don't break — continue the turn loop.
+        continue;
+      }
+
       // Save wake intention + context for self-continuity across sleep.
-      // IN7PM pattern: context_snapshot. When the agent wakes, these are
-      // injected into the system prompt so the future self picks up where
-      // the past self left off.
       if (transitionRequested.to === "SLEEP") {
         state.wakeIntention = transitionRequested.wakeIntention;
         state.wakeContext = transitionRequested.wakeContext;

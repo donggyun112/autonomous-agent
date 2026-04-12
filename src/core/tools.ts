@@ -922,7 +922,7 @@ const transitionTool: Tool = {
   def: {
     name: "transition",
     description:
-      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. When moving to SLEEP, you may record an intention and context for your next wake — these will be shown to your future self at the start of the next WAKE cycle, so you can pick up where you left off. This is how you maintain continuity across sleep.",
+      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. NOTE: you cannot sleep if your sleep pressure is below 0.3 — your body must be tired enough. If rejected, keep thinking. When moving to SLEEP, record an intention and context for your next wake — these will be shown to your future self so you can pick up where you left off. Too long without sleep and the body forces it (pressure >= 1.0).",
     input_schema: {
       type: "object",
       properties: {

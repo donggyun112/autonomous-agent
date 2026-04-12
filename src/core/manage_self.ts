@@ -68,11 +68,11 @@ function resolveTarget(scope: Scope, name: string): string | null {
   if (scope === "state-prompt" && cleanName.replace(/\.md$/, "") === "base") {
     return null;
   }
-  // Default extension: .md for state-prompt and ritual, .ts for tool/subagent.
+  // Default extension: .ts for tools (code), .md for everything else
+  // (subagents, rituals, state-prompts are all markdown with frontmatter).
   let filename = cleanName;
   if (!filename.endsWith(".md") && !filename.endsWith(".ts")) {
-    filename +=
-      scope === "tool" || scope === "subagent" ? ".ts" : ".md";
+    filename += scope === "tool" ? ".ts" : ".md";
   }
   return join(SCOPES[scope].dir, filename);
 }

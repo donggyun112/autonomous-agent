@@ -12,6 +12,7 @@ import { mkdir, readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { createInterface } from "readline/promises";
 import { runCycle } from "./core/cycle.js";
+import { popDueWake } from "./core/scheduled-wakes.js";
 import {
   checkInbox as checkInboxApi,
   listPendingQuestions,
@@ -329,10 +330,28 @@ async function live(): Promise<void> {
   while (running) {
     const state = await loadState();
 
-    // Honor scheduled wake.
+    // Check for due scheduled wakes (schedule_wake tool). If one fires,
+    // inject its intention+context into state so the next cycle sees it.
+    try {
+      const dueWake = await popDueWake();
+      if (dueWake) {
+        console.log(`\n[wake] scheduled wake fired: ${dueWake.id} — ${dueWake.intention}`);
+        // If agent is sleeping, this wake overrides the remaining sleep.
+        if (state.mode === "SLEEP") {
+          state.wakeAfter = 0; // clear any remaining sleep timer
+        }
+        state.wakeIntention = dueWake.intention;
+        state.wakeContext = dueWake.context;
+        await saveState(state);
+      }
+    } catch {
+      // scheduled-wakes check should never crash daemon
+    }
+
+    // Honor scheduled wake (transition's sleep_minutes).
     if (state.wakeAfter && Date.now() < state.wakeAfter) {
       const waitMs = state.wakeAfter - Date.now();
-      const sleepFor = Math.min(waitMs, 60_000); // wake every minute to check
+      const sleepFor = Math.min(waitMs, 60_000);
       await sleep(sleepFor);
       continue;
     }

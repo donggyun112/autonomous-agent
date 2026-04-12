@@ -185,6 +185,30 @@ export async function runCycle(options?: {
     extensionsSummary(extensions),
   ].join("\n");
 
+  // Wake intention — self-continuity across sleep. If the past self left
+  // an intention and context before sleeping, surface it now. Then clear
+  // from state so it doesn't repeat on subsequent cycles.
+  let wakeIntentionBlock = "";
+  if (state.mode === "WAKE" && (state.wakeIntention || state.wakeContext)) {
+    const parts = ["---", "## you scheduled this wake"];
+    if (state.wakeIntention) {
+      parts.push("", `**intention:** ${state.wakeIntention}`);
+    }
+    if (state.wakeContext) {
+      parts.push("", `**context from your past self:**`, state.wakeContext);
+    }
+    parts.push(
+      "",
+      "This is what you-before-sleep wanted you-after-sleep to know. Pick it up if it still matters.",
+    );
+    wakeIntentionBlock = parts.join("\n");
+
+    // Clear so it doesn't repeat.
+    state.wakeIntention = undefined;
+    state.wakeContext = undefined;
+    await saveState(state);
+  }
+
   // Curiosity blocks — random stimuli to prevent repetitive thinking.
   let curiosityBlocks = "";
   try {
@@ -202,6 +226,7 @@ export async function runCycle(options?: {
     driftSection,
     pressureNote,
     extensionsBlock,
+    wakeIntentionBlock,
     curiosityBlocks,
     "---",
     `## you are currently in state: ${state.mode}`,
@@ -296,7 +321,13 @@ export async function runCycle(options?: {
       content: string;
     }> = [];
 
-    let transitionRequested: { to: Mode; reason: string; wakeAfterMs?: number } | null = null;
+    let transitionRequested: {
+      to: Mode;
+      reason: string;
+      wakeAfterMs?: number;
+      wakeIntention?: string;
+      wakeContext?: string;
+    } | null = null;
     let restRequested = false;
 
     for (const call of response.toolCalls) {
@@ -307,11 +338,17 @@ export async function runCycle(options?: {
         const to = String(call.input.to ?? "") as Mode;
         const reason = String(call.input.reason ?? "(no reason)");
         const sleepMin = Number(call.input.sleep_minutes ?? 0);
+        const wakeIntention = typeof call.input.wake_intention === "string"
+          ? call.input.wake_intention : undefined;
+        const wakeContext = typeof call.input.wake_context === "string"
+          ? call.input.wake_context : undefined;
         if (to === "WAKE" || to === "REFLECT" || to === "SLEEP") {
           transitionRequested = {
             to,
             reason,
             wakeAfterMs: sleepMin > 0 ? sleepMin * 60_000 : undefined,
+            wakeIntention,
+            wakeContext,
           };
         }
         toolResults.push({
@@ -384,6 +421,14 @@ export async function runCycle(options?: {
     observer?.onTurnEnd?.(turn);
 
     if (transitionRequested) {
+      // Save wake intention + context for self-continuity across sleep.
+      // IN7PM pattern: context_snapshot. When the agent wakes, these are
+      // injected into the system prompt so the future self picks up where
+      // the past self left off.
+      if (transitionRequested.to === "SLEEP") {
+        state.wakeIntention = transitionRequested.wakeIntention;
+        state.wakeContext = transitionRequested.wakeContext;
+      }
       state = await transition(state, transitionRequested.to, transitionRequested.reason, {
         wakeAfterMs: transitionRequested.wakeAfterMs,
       });

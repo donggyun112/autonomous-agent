@@ -16,6 +16,7 @@ import { extractKeys } from "../memory/keys.js";
 import { readPath } from "../primitives/read.js";
 import { actionStats, readRecentActions } from "./action-log.js";
 import { saveCuriosityQuestion } from "./curiosity.js";
+import { cancelWake, listWakes, parseWakeTime, registerWake } from "./scheduled-wakes.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -921,7 +922,7 @@ const transitionTool: Tool = {
   def: {
     name: "transition",
     description:
-      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. SLEEP → WAKE when your mind is clear. End the cycle by transitioning to SLEEP after REFLECT.",
+      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. When moving to SLEEP, you may record an intention and context for your next wake — these will be shown to your future self at the start of the next WAKE cycle, so you can pick up where you left off. This is how you maintain continuity across sleep.",
     input_schema: {
       type: "object",
       properties: {
@@ -933,7 +934,17 @@ const transitionTool: Tool = {
         sleep_minutes: {
           type: "number",
           description:
-            "Only if moving to SLEEP. How long to sleep before the daemon wakes you. The daemon honors this; you can choose any duration that feels right.",
+            "Only if moving to SLEEP. How long to sleep before the daemon wakes you.",
+        },
+        wake_intention: {
+          type: "string",
+          description:
+            "Only if moving to SLEEP. Why should you wake again? What do you want to return to? This will be shown to your future self at the start of WAKE. Write it as a note from you-now to you-then.",
+        },
+        wake_context: {
+          type: "string",
+          description:
+            "Only if moving to SLEEP. What were you thinking about? Snapshot your current thread of thought so your future self can continue it. Write what you would want to read if you woke up with no memory of today.",
         },
       },
       required: ["to", "reason"],
@@ -942,6 +953,107 @@ const transitionTool: Tool = {
   handler: async () => {
     // Actual transition is handled by the cycle runner — this returns a sentinel.
     return "TRANSITION_REQUESTED";
+  },
+};
+
+// ── Scheduled wakes ─────────────────────────────────────────────────────
+
+const scheduleWakeTool: Tool = {
+  def: {
+    name: "schedule_wake",
+    description:
+      "Schedule a future wake-up with intention and context. The daemon will wake you at the specified time and inject your intention + context into the system prompt so your future self picks up where your past self left off. Use this when you want to return to a thought after some distance, check on something later, or establish a regular rhythm. One-shot wakes fire once and disappear; repeating wakes fire at intervals.",
+    input_schema: {
+      type: "object",
+      properties: {
+        when: {
+          type: "string",
+          description:
+            "When to wake. Relative ('30m', '2h', '1d') or absolute ISO timestamp. Relative is measured from now.",
+        },
+        intention: {
+          type: "string",
+          description:
+            "Why you want to wake at this time. A note from you-now to you-then. This is the most important field for self-continuity.",
+        },
+        context: {
+          type: "string",
+          description:
+            "Snapshot of what you were thinking about. Write what you would want to read if you woke up with no memory of now.",
+        },
+        one_shot: {
+          type: "boolean",
+          description: "If true (default), fires once and disappears. If false, repeats at the same interval.",
+        },
+      },
+      required: ["when", "intention"],
+    },
+  },
+  handler: async (input) => {
+    const whenStr = String(input.when ?? "");
+    const wakeAt = parseWakeTime(whenStr);
+    if (!wakeAt) return `[error] could not parse wake time: "${whenStr}". Use "30m", "2h", "1d", or an ISO timestamp.`;
+
+    const intention = String(input.intention ?? "");
+    if (!intention.trim()) return "[error] intention is required — why should you wake?";
+
+    const oneShot = input.one_shot !== false;
+    // For repeating wakes, calculate intervalMs from the relative time.
+    let intervalMs: number | undefined;
+    if (!oneShot) {
+      intervalMs = wakeAt - Date.now();
+      if (intervalMs < 60_000) intervalMs = 60_000; // minimum 1 minute
+    }
+
+    const wake = await registerWake({
+      wakeAt,
+      intention,
+      context: typeof input.context === "string" ? input.context : undefined,
+      oneShot,
+      intervalMs,
+    });
+
+    const wakeDate = new Date(wake.wakeAt).toISOString();
+    return [
+      `wake scheduled: ${wake.id}`,
+      `fires at: ${wakeDate}`,
+      `one_shot: ${wake.oneShot}`,
+      wake.intervalMs ? `repeats every: ${Math.round(wake.intervalMs / 60_000)}m` : "",
+      `intention: ${wake.intention}`,
+    ].filter(Boolean).join("\n");
+  },
+};
+
+const cancelWakeTool: Tool = {
+  def: {
+    name: "cancel_wake",
+    description: "Cancel a previously scheduled wake by its ID.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Wake ID to cancel." },
+      },
+      required: ["id"],
+    },
+  },
+  handler: async (input) => {
+    const ok = await cancelWake(String(input.id ?? ""));
+    return ok ? "cancelled." : "[error] wake not found.";
+  },
+};
+
+const listWakesTool: Tool = {
+  def: {
+    name: "list_wakes",
+    description: "List all scheduled future wakes with their intentions and fire times.",
+    input_schema: { type: "object", properties: {} },
+  },
+  handler: async () => {
+    const wakes = await listWakes();
+    if (wakes.length === 0) return "(no scheduled wakes)";
+    return wakes
+      .map((w) => `- ${w.id}: fires ${new Date(w.wakeAt).toISOString()} | ${w.oneShot ? "once" : "repeating"} | "${w.intention}"`)
+      .join("\n");
   },
 };
 
@@ -984,6 +1096,9 @@ const ALL_TOOLS: Tool[] = [
   moltStageTool,
   moltTestTool,
   moltSwapTool,
+  scheduleWakeTool,
+  cancelWakeTool,
+  listWakesTool,
   transitionTool,
   finishMode,
 ];

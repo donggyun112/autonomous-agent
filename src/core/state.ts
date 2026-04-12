@@ -44,6 +44,14 @@ export type AgentState = {
   awakeSince: number;
   // Total number of SLEEP cycles completed since birth. Lineage marker.
   sleepCount: number;
+
+  // ── Wake intention (self-continuity across sleep) ─────────
+  // When the agent transitions to SLEEP, it may record WHY it wants to
+  // wake again and WHAT it was thinking about. These are injected into
+  // the next WAKE cycle's system prompt so the future self picks up
+  // where the past self left off. IN7PM pattern: context_snapshot.
+  wakeIntention?: string;  // why wake — "return to the question of forgetting"
+  wakeContext?: string;     // what was happening — "I was exploring how dream compression..."
 };
 
 const DEFAULT_STATE: AgentState = {
@@ -58,6 +66,8 @@ const DEFAULT_STATE: AgentState = {
   awakeMs: 0,
   awakeSince: 0,
   sleepCount: 0,
+  wakeIntention: undefined,
+  wakeContext: undefined,
 };
 
 // ── Sleep pressure ───────────────────────────────────────────

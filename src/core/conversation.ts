@@ -234,9 +234,21 @@ export async function checkInbox(options?: {
     const id = fields.id || name.replace(/\.md$/, "");
 
     // Skip if already read and we're only fetching unread.
-    if (!includeAll && receivedAt) {
-      const ms = Date.parse(receivedAt);
-      if (Number.isFinite(ms) && ms <= state.lastInboxReadAt) continue;
+    // Round-7 P2 fix: also use file mtime as fallback for timestamp-less
+    // messages, so they are properly skipped after being read once.
+    if (!includeAll) {
+      const ms = receivedAt ? Date.parse(receivedAt) : NaN;
+      if (Number.isFinite(ms)) {
+        if (ms <= state.lastInboxReadAt) continue;
+      } else {
+        // No parseable timestamp — fall back to file mtime.
+        try {
+          const fileStat = await stat(full);
+          if (fileStat.mtimeMs <= state.lastInboxReadAt) continue;
+        } catch {
+          // Can't stat — include the message (don't silently drop).
+        }
+      }
     }
 
     let replyToReason: string | undefined;

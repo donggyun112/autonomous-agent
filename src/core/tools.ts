@@ -17,6 +17,7 @@ import { readPath } from "../primitives/read.js";
 import { actionStats, readRecentActions } from "./action-log.js";
 import { saveCuriosityQuestion } from "./curiosity.js";
 import { cancelWake, listWakes, parseWakeTime, registerWake } from "./scheduled-wakes.js";
+import { listSubAgents, summonSubAgent } from "./subagent-loader.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -956,6 +957,61 @@ const transitionTool: Tool = {
   },
 };
 
+// ── Sub-agents (inner voices) ────────────────────────────────────────────
+
+const summonTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "summon",
+    description:
+      "Summon an inner voice — a sub-agent you have created in src/extensions/subagents/. The sub-agent gets its own LLM call with its own system prompt (from its .md file) plus any context you pass. It returns a response. Sub-agents cannot use tools or modify state — they can only think. Use them for dialogue with yourself: a questioner, a critic, a muse. Create sub-agents with manage_self(kind=create, scope=subagent).",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the sub-agent to summon (matches the 'name' field in its .md frontmatter).",
+        },
+        message: {
+          type: "string",
+          description: "What you want to say to or ask the sub-agent.",
+        },
+        context: {
+          type: "string",
+          description: "Optional: context from your current thinking to share with the sub-agent.",
+        },
+      },
+      required: ["name", "message"],
+    },
+  },
+  handler: async (input) => {
+    const result = await summonSubAgent({
+      name: String(input.name ?? ""),
+      message: String(input.message ?? ""),
+      contextFromParent: typeof input.context === "string" ? input.context : undefined,
+    });
+    return `[${result.subAgentName}]: ${result.response}`;
+  },
+};
+
+const listSubAgentsTool: Tool = {
+  def: {
+    name: "list_subagents",
+    description:
+      "List available sub-agents (inner voices) you have created. Shows name and description for each.",
+    input_schema: { type: "object", properties: {} },
+  },
+  handler: async () => {
+    const agents = await listSubAgents();
+    if (agents.length === 0) {
+      return "(no sub-agents yet — create one with manage_self(kind=create, scope=subagent))";
+    }
+    return agents
+      .map((a) => `- ${a.name}: ${a.description || "(no description)"}`)
+      .join("\n");
+  },
+};
+
 // ── Scheduled wakes ─────────────────────────────────────────────────────
 
 const scheduleWakeTool: Tool = {
@@ -1096,6 +1152,8 @@ const ALL_TOOLS: Tool[] = [
   moltStageTool,
   moltTestTool,
   moltSwapTool,
+  summonTool,
+  listSubAgentsTool,
   scheduleWakeTool,
   cancelWakeTool,
   listWakesTool,

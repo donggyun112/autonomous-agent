@@ -38,6 +38,7 @@ import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
 import { compactIfNeeded, resetCompactionState } from "./compact.js";
 import { buildCuriosityBlocks } from "./curiosity.js";
+import { buildRitualBlock } from "./ritual-loader.js";
 import {
   extensionsSummary,
   loadExtensionTools,
@@ -210,12 +211,24 @@ export async function runCycle(options?: {
     await saveState(state);
   }
 
+  // Ritual blocks — periodic practices the agent gave itself.
+  let ritualBlock = "";
+  try {
+    ritualBlock = await buildRitualBlock({
+      currentMode: state.mode,
+      sleepCount: state.sleepCount,
+      cycle: state.cycle,
+    });
+  } catch {
+    // ok
+  }
+
   // Curiosity blocks — random stimuli to prevent repetitive thinking.
   let curiosityBlocks = "";
   try {
     curiosityBlocks = await buildCuriosityBlocks(state.mode);
   } catch {
-    // curiosity failure should never block the cycle
+    // ok
   }
 
   const systemPrompt = [
@@ -228,6 +241,7 @@ export async function runCycle(options?: {
     pressureNote,
     extensionsBlock,
     wakeIntentionBlock,
+    ritualBlock,
     curiosityBlocks,
     "---",
     `## you are currently in state: ${state.mode}`,

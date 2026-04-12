@@ -64,18 +64,43 @@ async function init(args: string[]): Promise<void> {
   console.log(`data/ initialized. run \`pnpm cycle\` to wake for the first time.`);
 }
 
-// Minimal observer for the daemon — terse stdout so a `tail -f` is readable.
-// Real UI (Discord etc.) will subscribe to the same observer events later.
-function minimalObserver() {
+// Live observer — shows the agent's thoughts and actions as they happen.
+function liveObserver() {
+  let inText = false;
   return {
     onTurnStart: (turn: number, mode: string) => {
-      process.stdout.write(`\n[turn ${turn} · ${mode}] `);
+      inText = false;
+      process.stdout.write(`\n\x1b[2m── turn ${turn} · ${mode} ──\x1b[0m\n`);
     },
-    onLLMEvent: (event: { type: string }) => {
-      if (event.type === "text_delta") process.stdout.write(".");
+    onLLMEvent: (event: { type: string; delta?: string }) => {
+      if (event.type === "text_delta" && event.delta) {
+        if (!inText) {
+          inText = true;
+        }
+        process.stdout.write(event.delta);
+      }
     },
-    onToolStart: (name: string) => {
-      process.stdout.write(`\n  → ${name}`);
+    onToolStart: (name: string, input: Record<string, unknown>) => {
+      if (inText) {
+        process.stdout.write("\n");
+        inText = false;
+      }
+      const summary = Object.entries(input)
+        .map(([k, v]) => {
+          const s = typeof v === "string" ? v : JSON.stringify(v);
+          return `${k}=${s.length > 60 ? s.slice(0, 57) + "…" : s}`;
+        })
+        .join(", ");
+      process.stdout.write(`\x1b[36m  ▸ ${name}\x1b[0m${summary ? ` ${summary}` : ""}\n`);
+    },
+    onToolEnd: (name: string, result: string) => {
+      // Show short result for non-journal tools.
+      if (name === "journal" || name === "transition" || name === "rest") return;
+      if (result.length > 200) {
+        process.stdout.write(`\x1b[2m    ← ${result.slice(0, 150)}…\x1b[0m\n`);
+      } else if (result && result !== "TRANSITION_REQUESTED" && result !== "REST_REQUESTED") {
+        process.stdout.write(`\x1b[2m    ← ${result}\x1b[0m\n`);
+      }
     },
   };
 }
@@ -86,9 +111,9 @@ async function cycleOnce(): Promise<void> {
     process.exit(1);
   }
 
-  const result = await runCycle({ observer: minimalObserver() });
+  const result = await runCycle({ observer: liveObserver() });
   console.log(
-    `\n[cycle] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason} cycle#=${result.state.cycle}`,
+    `\n\x1b[2m[cycle] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason} cycle#=${result.state.cycle}\x1b[0m`,
   );
   console.log(
     `[tokens] in=${result.state.tokensUsed.input} out=${result.state.tokensUsed.output}`,
@@ -371,7 +396,7 @@ async function live(): Promise<void> {
     }
 
     try {
-      const result = await runCycle({ observer: minimalObserver() });
+      const result = await runCycle({ observer: liveObserver() });
       console.log(
         `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
       );

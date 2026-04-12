@@ -14,6 +14,7 @@ import type { ToolDefinition, ToolCall } from "../llm/client.js";
 import { appendThought, readRecent, readToday } from "../memory/journal.js";
 import { extractKeys } from "../memory/keys.js";
 import { readPath } from "../primitives/read.js";
+import { actionStats, readRecentActions } from "./action-log.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -313,6 +314,42 @@ const readFileTool: Tool = {
     } catch (err) {
       return `[error] ${(err as Error).message}`;
     }
+  },
+};
+
+// ── Action log review ────────────────────────────────────────────────────
+
+const reviewActionsTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "review_actions",
+    description:
+      "Review your own action log — every tool call you've made, with timing, inputs, outputs, and errors. Use this in REFLECT to understand your behavior patterns: which tools you use most, which ones fail, how long things take. This is how you learn to improve your own processes. Without reviewing actions, you can only remember thoughts — not what you actually did.",
+    input_schema: {
+      type: "object",
+      properties: {
+        days: {
+          type: "number",
+          description: "How many days of action logs to review. Default 1.",
+        },
+        stats_only: {
+          type: "boolean",
+          description: "If true, return summary stats (tool counts, error rate, avg duration) instead of raw entries. Good for a quick overview.",
+        },
+      },
+    },
+  },
+  handler: async (input) => {
+    const days = typeof input.days === "number" ? input.days : 1;
+    if (input.stats_only === true) {
+      const stats = await actionStats(days);
+      return JSON.stringify(stats, null, 2);
+    }
+    const entries = await readRecentActions(days);
+    if (entries.length === 0) return "(no action logs yet)";
+    // Return last 50 entries to avoid blowing context.
+    const recent = entries.slice(-50);
+    return JSON.stringify(recent, null, 2);
   },
 };
 
@@ -753,7 +790,7 @@ const moltStageTool: Tool = {
   def: {
     name: "molt_stage",
     description:
-      "Stage a candidate new shell (B) by building a new Docker image. Copies the full build context (src/, Dockerfile, package.json, pnpm-lock.yaml, tsconfig.json) to generations/<id>/, applies optional patches to any of those files, then runs `docker build` to produce a new image tagged autonomous-agent:<id>. This can take several minutes. Use this when you want to change your core that manage_self cannot reach — state machine, primitives, llm client, base prompt, dependencies, even the base OS or Node version via Dockerfile patches. Your current shell (container) is untouched. Next call molt_test to verify the new image boots. Returns { generationId, imageTag, filesPatched, buildStdout, buildStderr }.",
+      "Stage a candidate new shell (B) by building a new Docker image. Copies the full build context (src/, Dockerfile, package.json, pnpm-lock.yaml, tsconfig.json) to generations/<id>/, applies optional patches, then runs `docker build`. This can take several minutes. Use when you want to change your core that manage_self cannot reach. You can optionally fork from a previous generation instead of your current shell — useful when an older version had a better foundation for a specific change (Hyperagents archive exploration pattern). Next call molt_test to verify.",
     input_schema: {
       type: "object",
       properties: {
@@ -764,7 +801,7 @@ const moltStageTool: Tool = {
         patch: {
           type: "array",
           description:
-            "Optional list of file patches applied to the build context. Each is { rel_path, content }. rel_path is relative to the generation root — so 'src/core/cycle.ts' or 'Dockerfile' or 'package.json' are all valid.",
+            "Optional file patches applied to the build context. Each is { rel_path, content }. rel_path relative to generation root.",
           items: {
             type: "object",
             properties: {
@@ -774,6 +811,11 @@ const moltStageTool: Tool = {
             required: ["rel_path", "content"],
           },
         },
+        from_generation: {
+          type: "string",
+          description:
+            "Optional: fork from a previous generation ID instead of current shell. Use when an older shell is a better starting point. Check lineage.md to see past generations.",
+        },
       },
       required: ["reason"],
     },
@@ -782,7 +824,8 @@ const moltStageTool: Tool = {
     const reason = String(input.reason ?? "(no reason given)");
     const patchRaw = input.patch as Array<{ rel_path: string; content: string }> | undefined;
     const patch = patchRaw?.map((p) => ({ relPath: p.rel_path, content: p.content }));
-    const result = await stageMolt({ reason, patch });
+    const fromGeneration = typeof input.from_generation === "string" ? input.from_generation : undefined;
+    const result = await stageMolt({ reason, patch, fromGeneration });
     return JSON.stringify(result, null, 2);
   },
 };
@@ -900,6 +943,7 @@ const ALL_TOOLS: Tool[] = [
   updateWhoAmI,
   checkContinuity,
   readFileTool,
+  reviewActionsTool,
   scanRecent,
   dreamMemory,
   wikiListTool,

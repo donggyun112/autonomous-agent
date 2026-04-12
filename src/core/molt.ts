@@ -108,6 +108,10 @@ export type StageMoltArgs = {
   // relPath is relative to generations/<id>/ — so you can patch src/ or
   // Dockerfile or package.json alike.
   patch?: Array<{ relPath: string; content: string }>;
+  // Hyperagents pattern: fork from a previous generation instead of current
+  // shell. Enables archive exploration — sometimes an older shell had a
+  // better foundation for a specific change. If omitted, forks from current.
+  fromGeneration?: string;
 };
 
 export type StageResult = {
@@ -141,14 +145,28 @@ export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
   const generationDir = join(GENERATIONS, generationId);
   await mkdir(generationDir, { recursive: true });
 
-  // Copy each file/dir in the build context from the project root.
+  // Hyperagents archive exploration: fork from a previous generation instead
+  // of the current shell. This enables "parent selection with diversity" —
+  // sometimes an older shell is a better starting point for a new mutation.
+  const sourceRoot = args.fromGeneration
+    ? join(GENERATIONS, args.fromGeneration)
+    : ROOT;
+  if (args.fromGeneration) {
+    try {
+      await stat(sourceRoot);
+    } catch {
+      throw new Error(`stageMolt: fromGeneration ${args.fromGeneration} not found in generations/`);
+    }
+  }
+
+  // Copy each file/dir in the build context from the source.
   for (const name of BUILD_CONTEXT_FILES) {
-    const srcPath = join(ROOT, name);
+    const srcPath = join(sourceRoot, name);
     const dstPath = join(generationDir, name);
     try {
       await stat(srcPath);
     } catch {
-      // Missing optional file (e.g., .dockerignore) — skip.
+      // Missing optional file — skip.
       continue;
     }
     await cp(srcPath, dstPath, { recursive: true });

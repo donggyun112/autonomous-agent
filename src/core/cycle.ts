@@ -34,6 +34,7 @@ import {
 } from "./state.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
+import { logAction } from "./action-log.js";
 import { compactIfNeeded, resetCompactionState } from "./compact.js";
 import {
   extensionsSummary,
@@ -322,8 +323,27 @@ export async function runCycle(options?: {
       }
 
       observer?.onToolStart?.(call.name, call.input);
+      const toolStart = Date.now();
       const out = await dispatchTool(tools, call);
+      const toolDuration = Date.now() - toolStart;
       observer?.onToolEnd?.(call.name, out);
+
+      // Action log — every tool call recorded for self-improvement analysis.
+      // Hyperagents found agents spontaneously create this. We provide it.
+      try {
+        await logAction({
+          ts: new Date().toISOString(),
+          cycle: state.cycle,
+          mode: state.mode,
+          tool: call.name,
+          input_summary: JSON.stringify(call.input).slice(0, 200),
+          output_summary: out.slice(0, 200),
+          duration_ms: toolDuration,
+          error: out.startsWith("(tool error:") ? out : undefined,
+        });
+      } catch {
+        // logging failure should never crash the cycle
+      }
       toolResults.push({
         type: "tool_result",
         tool_use_id: call.id,

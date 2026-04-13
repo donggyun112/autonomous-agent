@@ -41,6 +41,7 @@ import {
   transition,
 } from "./state.js";
 import {
+  appendLog,
   ensureWikiInitialized,
   lintWiki,
   listPages,
@@ -532,7 +533,191 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "sleep-narrative", message: (err as Error).message });
   }
 
-  // 5g. Compress recent session trajectories.
+  // 5g. Auto-skill extraction from action patterns.
+  // Analyze today's action log for repeated tool sequences and extract
+  // reusable skills as ritual files (Hermes "autonomous skill creation" pattern).
+  try {
+    const { readRecentActions } = await import("./action-log.js");
+    const actions = await readRecentActions(1);
+    if (actions.length >= 5) {
+      // Find repeated tool sequences (2+ occurrences of same 2-tool pattern)
+      const pairs: Record<string, number> = {};
+      for (let i = 0; i < actions.length - 1; i++) {
+        const pair = `${actions[i].tool}→${actions[i + 1].tool}`;
+        pairs[pair] = (pairs[pair] ?? 0) + 1;
+      }
+      const repeated = Object.entries(pairs)
+        .filter(([, count]) => count >= 2)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+
+      if (repeated.length > 0) {
+        const patternsText = repeated
+          .map(([pair, count]) => `- ${pair} (${count} times)`)
+          .join("\n");
+
+        // Ask LLM to extract a skill from the pattern
+        const skillResult = await thinkAux({
+          systemPrompt:
+            "You are analyzing an agent's action patterns to extract reusable skills. " +
+            "Given repeated tool sequences, write a skill file in markdown with YAML frontmatter. " +
+            "Format:\n---\nname: skill-name\ndescription: what and when\nschedule: always\nmode: WAKE\n---\n\n## Process\n1. step\n2. step\n\n" +
+            "If the patterns are trivial (just journal+recall loops), respond with NO_SKILL. " +
+            "Only extract genuinely useful procedures.",
+          messages: [{
+            role: "user",
+            content: `Today's repeated tool patterns:\n${patternsText}\n\nTotal actions: ${actions.length}\nTop tools: ${
+              Object.entries(actions.reduce((acc: Record<string, number>, a) => {
+                acc[a.tool] = (acc[a.tool] ?? 0) + 1;
+                return acc;
+              }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => `${t}(${n})`).join(", ")
+            }\n\nExtract a reusable skill if the pattern is meaningful.`,
+          }],
+          maxTokens: 512,
+        });
+
+        const skillText = skillResult.text.trim();
+        if (skillText && skillText !== "NO_SKILL" && skillText.includes("---")) {
+          // Extract skill name from frontmatter
+          const nameMatch = skillText.match(/name:\s*(.+)/);
+          const skillName = nameMatch
+            ? nameMatch[1].trim().replace(/[^a-z0-9-]/gi, "-").toLowerCase()
+            : `auto-skill-day-${report.memoriesIngested}`;
+          const { SRC: srcDir } = await import("../primitives/paths.js");
+          const skillPath = join(srcDir, "extensions", "rituals", `${skillName}.md`);
+
+          // Only create if doesn't already exist
+          const { stat: statAsync } = await import("fs/promises");
+          try {
+            await statAsync(skillPath);
+            // Already exists — skip
+          } catch {
+            await writeFile(skillPath, skillText, "utf-8");
+            report.wikiPagesTouched += 1; // reuse counter for skill creation
+          }
+        }
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "skill-extraction", message: (err as Error).message });
+  }
+
+  // 5h. Keep/discard rule for extension tools (AutoAgent pattern).
+  // Tools that haven't been used in 5+ days get flagged. Tools unused for
+  // 10+ days get auto-deleted. Usage is tracked via action-log.
+  try {
+    const { readRecentActions } = await import("./action-log.js");
+    const { readdir: readdirAsync, rm: rmAsync, stat: statAsync, writeFile: writeFileAsync } = await import("fs/promises");
+    const { SRC: srcDir } = await import("../primitives/paths.js");
+    const extToolsDir = join(srcDir, "extensions", "tools");
+    const recentActions = await readRecentActions(10); // last 10 days
+    const usedTools = new Set(recentActions.map(a => a.tool));
+
+    try {
+      const toolFiles = (await readdirAsync(extToolsDir))
+        .filter(f => f.endsWith(".ts") && f !== "README.md");
+      for (const file of toolFiles) {
+        const toolName = file.replace(".ts", "");
+        const filePath = join(extToolsDir, file);
+        if (!usedTools.has(toolName)) {
+          // Check file age
+          const fileStat = await statAsync(filePath);
+          const ageMs = Date.now() - fileStat.mtimeMs;
+          const ageDays = ageMs / (86400000);
+          if (ageDays > 10) {
+            // Auto-delete unused tool
+            await rmAsync(filePath);
+            await appendLog({
+              ts: new Date().toISOString(),
+              kind: "delete",
+              target: toolName,
+              note: `keep-discard: unused for ${Math.round(ageDays)} days`,
+            });
+          } else if (ageDays > 5) {
+            // Flag for review
+            await appendLog({
+              ts: new Date().toISOString(),
+              kind: "lint",
+              target: toolName,
+              note: `keep-discard: unused ${Math.round(ageDays)} days, will delete at 10`,
+            });
+          }
+        }
+      }
+    } catch { /* extensions dir may not exist */ }
+
+    // Same for rituals/skills
+    const ritualsDir = join(srcDir, "extensions", "rituals");
+    try {
+      const ritualFiles = (await readdirAsync(ritualsDir))
+        .filter(f => f.endsWith(".md") && f !== "README.md");
+      for (const file of ritualFiles) {
+        const filePath = join(ritualsDir, file);
+        const fileStat = await statAsync(filePath);
+        const ageDays = (Date.now() - fileStat.mtimeMs) / 86400000;
+        // Skills older than 15 days that are from auto-generation get pruned
+        if (ageDays > 15 && file.startsWith("auto-skill-")) {
+          await rmAsync(filePath);
+          await appendLog({
+            ts: new Date().toISOString(),
+            kind: "delete",
+            target: file,
+            note: `keep-discard: auto-generated ritual, unused ${Math.round(ageDays)} days`,
+          });
+        }
+      }
+    } catch { /* rituals dir may not exist */ }
+  } catch (err) {
+    report.errors.push({ step: "keep-discard", message: (err as Error).message });
+  }
+
+  // 5i. Failure analysis (AutoAgent pattern).
+  // Classify errors from today's action log by root cause, create targeted
+  // debug skills for recurring error classes.
+  try {
+    const { readRecentActions: readActions } = await import("./action-log.js");
+    const todayActions = await readActions(1);
+    const errors = todayActions.filter(a => a.error);
+    if (errors.length >= 2) {
+      // Group errors by tool
+      const errorsByTool: Record<string, string[]> = {};
+      for (const e of errors) {
+        if (!errorsByTool[e.tool]) errorsByTool[e.tool] = [];
+        errorsByTool[e.tool].push(e.error ?? "unknown");
+      }
+
+      // For tools with 2+ errors, generate a debug skill
+      for (const [tool, errs] of Object.entries(errorsByTool)) {
+        if (errs.length < 2) continue;
+        const debugResult = await thinkAux({
+          systemPrompt:
+            "You analyze recurring tool errors and write a debug skill. " +
+            "Format: ---\\nname: debug-TOOLNAME\\ndescription: ...\\nschedule: always\\nmode: WAKE\\n---\\n\\n## When This Fires\\n...\\n## Fix Steps\\n1...\\n2...\\n" +
+            "If errors are trivial or random, respond NO_SKILL.",
+          messages: [{
+            role: "user",
+            content: `Tool "${tool}" failed ${errs.length} times today.\nErrors:\n${errs.slice(0, 5).map((e, i) => `${i + 1}. ${e.slice(0, 200)}`).join("\n")}\n\nWrite a debug skill.`,
+          }],
+          maxTokens: 400,
+        });
+        const text = debugResult.text.trim();
+        if (text && text !== "NO_SKILL" && text.includes("---")) {
+          const { SRC: srcDir2 } = await import("../primitives/paths.js");
+          const { stat: statCheck } = await import("fs/promises");
+          const skillPath = join(srcDir2, "extensions", "rituals", `debug-${tool}.md`);
+          try {
+            await statCheck(skillPath); // already exists
+          } catch {
+            await writeFile(skillPath, text, "utf-8");
+          }
+        }
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "failure-analysis", message: (err as Error).message });
+  }
+
+  // 5j. Compress recent session trajectories.
   try {
     const { compressRecentTrajectories } = await import("./trajectory.js");
     await compressRecentTrajectories(3);

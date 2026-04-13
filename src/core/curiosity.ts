@@ -104,7 +104,7 @@ export async function staleWikiStimulus(): Promise<string> {
 const EXPECTED_TOOLS = [
   "journal", "recall_self", "recall_memory", "recall_recent_journal",
   "update_whoAmI", "check_continuity", "wiki_list", "wiki_read",
-  "wiki_update", "wiki_lint", "web_search", "ask_user", "check_inbox",
+  "wiki_update", "wiki_lint", "web_search", "consult_oracle", "check_inbox",
   "write_letter", "review_actions", "manage_self", "read",
 ];
 

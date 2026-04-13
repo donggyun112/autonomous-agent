@@ -13,7 +13,7 @@
 //   Identity:       update_whoAmI, check_continuity
 //   Knowledge:      wiki_list, wiki_read, wiki_update, wiki_lint
 //   World:          read, web_search
-//   Conversation:   ask_user, check_inbox, write_letter
+//   Conversation:   consult_oracle, check_inbox, write_letter
 //   Self-review:    review_actions, leave_question
 //   Inner voices:   summon, list_subagents  (→ subagent-loader.ts)
 //   Self-growth:    manage_self             (→ manage_self.ts, light molt)
@@ -422,6 +422,243 @@ const readFileTool: Tool = {
   },
 };
 
+// ── Write file (ported from Claude Code FileWriteTool) ─────────────────
+
+const writeFileTool: Tool = {
+  def: {
+    name: "write_file",
+    description:
+      "Write a file to the filesystem. Creates parent directories if needed. " +
+      "Use this to create new files or completely overwrite existing ones. " +
+      "For partial edits, prefer edit_file.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Absolute or relative path to the file to write.",
+        },
+        content: {
+          type: "string",
+          description: "The full content to write to the file.",
+        },
+      },
+      required: ["file_path", "content"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const { resolve, dirname } = await import("path");
+    const { mkdir: mkdirAsync, writeFile: writeFileAsync, stat: statAsync } = await import("fs/promises");
+    const p = resolve(String(input.file_path ?? ""));
+    const content = String(input.content ?? "");
+    try {
+      await mkdirAsync(dirname(p), { recursive: true });
+      let existed = false;
+      try { await statAsync(p); existed = true; } catch { /* new file */ }
+      await writeFileAsync(p, content, "utf-8");
+      return existed
+        ? `updated: ${p} (${content.length} chars)`
+        : `created: ${p} (${content.length} chars)`;
+    } catch (err) {
+      return `[error] ${(err as Error).message}`;
+    }
+  },
+};
+
+// ── Edit file (ported from Claude Code FileEditTool) ───────────────────
+
+const editFileTool: Tool = {
+  def: {
+    name: "edit_file",
+    description:
+      "Edit a file by exact string replacement. Finds old_string in the file " +
+      "and replaces it with new_string. Fails if old_string is not found or " +
+      "not unique (unless replace_all is true). Use for surgical edits.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Absolute or relative path to the file to edit.",
+        },
+        old_string: {
+          type: "string",
+          description: "The exact text to find and replace.",
+        },
+        new_string: {
+          type: "string",
+          description: "The replacement text.",
+        },
+        replace_all: {
+          type: "boolean",
+          description: "Replace all occurrences (default: false).",
+        },
+      },
+      required: ["file_path", "old_string", "new_string"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const { resolve } = await import("path");
+    const { readFile: readFileAsync, writeFile: writeFileAsync } = await import("fs/promises");
+    const p = resolve(String(input.file_path ?? ""));
+    const oldStr = String(input.old_string ?? "");
+    const newStr = String(input.new_string ?? "");
+    const replaceAll = input.replace_all === true;
+    if (oldStr === newStr) return "[error] old_string and new_string are the same.";
+    try {
+      const content = await readFileAsync(p, "utf-8");
+      if (!content.includes(oldStr)) {
+        return `[error] old_string not found in ${p}.`;
+      }
+      const count = content.split(oldStr).length - 1;
+      if (count > 1 && !replaceAll) {
+        return `[error] Found ${count} matches of old_string. Set replace_all=true to replace all, or provide more context to make it unique.`;
+      }
+      const updated = replaceAll
+        ? content.split(oldStr).join(newStr)
+        : content.replace(oldStr, newStr);
+      await writeFileAsync(p, updated, "utf-8");
+      return replaceAll
+        ? `edited: ${p} (${count} replacements)`
+        : `edited: ${p}`;
+    } catch (err) {
+      return `[error] ${(err as Error).message}`;
+    }
+  },
+};
+
+// ── Glob (ported from Claude Code GlobTool) ────────────────────────────
+
+const globTool: Tool = {
+  def: {
+    name: "glob",
+    description:
+      "Find files matching a glob pattern. Returns paths sorted by modification time. " +
+      'Supports patterns like "**/*.ts", "src/**/*.md", "*.json".',
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: {
+          type: "string",
+          description: 'Glob pattern (e.g. "**/*.ts", "src/**/*.md").',
+        },
+        path: {
+          type: "string",
+          description: "Directory to search in. Defaults to project root.",
+        },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const { execFileSync } = await import("child_process");
+    const { resolve } = await import("path");
+    const pattern = String(input.pattern ?? "");
+    const dir = input.path ? resolve(String(input.path)) : resolve(".");
+    try {
+      const out = execFileSync("find", [dir, "-type", "f", "-name", pattern.includes("/") ? pattern.split("/").pop()! : pattern], {
+        encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 1024,
+      }).trim();
+      if (!out) return "(no files matched)";
+      const files = out.split("\n").slice(0, 100);
+      return `${files.length} file(s):\n${files.join("\n")}`;
+    } catch {
+      try {
+        const { readdir } = await import("fs/promises");
+        const { join } = await import("path");
+        const walk = async (d: string): Promise<string[]> => {
+          const entries = await readdir(d, { withFileTypes: true });
+          const results: string[] = [];
+          for (const e of entries) {
+            const full = join(d, e.name);
+            if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") {
+              results.push(...await walk(full));
+            } else if (e.isFile()) results.push(full);
+          }
+          return results;
+        };
+        const allFiles = await walk(dir);
+        const simplePattern = pattern.replace(/\*\*\//g, "").replace(/\*/g, ".*");
+        const re = new RegExp(simplePattern.replace(/\./g, "\\."));
+        const matched = allFiles.filter(f => re.test(f)).slice(0, 100);
+        if (matched.length === 0) return "(no files matched)";
+        return `${matched.length} file(s):\n${matched.join("\n")}`;
+      } catch (err) {
+        return `[error] ${(err as Error).message}`;
+      }
+    }
+  },
+};
+
+// ── Grep (ported from Claude Code GrepTool) ────────────────────────────
+
+const grepTool: Tool = {
+  def: {
+    name: "grep",
+    description:
+      "Search file contents with regex. Uses ripgrep (rg) if available, " +
+      "grep otherwise. Returns matching lines with file paths and line numbers.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: {
+          type: "string",
+          description: "Regex pattern to search for.",
+        },
+        path: {
+          type: "string",
+          description: "File or directory to search in. Defaults to project root.",
+        },
+        glob: {
+          type: "string",
+          description: 'File pattern filter (e.g. "*.ts", "*.md").',
+        },
+        case_insensitive: {
+          type: "boolean",
+          description: "Case insensitive search (default: false).",
+        },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const { execFileSync } = await import("child_process");
+    const { resolve } = await import("path");
+    const pattern = String(input.pattern ?? "");
+    const dir = input.path ? resolve(String(input.path)) : resolve(".");
+    const caseFlag = input.case_insensitive ? "-i" : "";
+    const globFilter = input.glob ? String(input.glob) : "";
+    // Try ripgrep first, fall back to grep
+    for (const cmd of ["rg", "grep"]) {
+      try {
+        const args: string[] = ["-n"];
+        if (caseFlag) args.push(caseFlag);
+        if (cmd === "rg") {
+          args.push("--max-count=200", "--no-heading");
+          if (globFilter) args.push("--glob", globFilter);
+        } else {
+          args.push("-r");
+          if (globFilter) args.push(`--include=${globFilter}`);
+        }
+        args.push(pattern, dir);
+        const out = execFileSync(cmd, args, {
+          encoding: "utf-8", timeout: 15000, maxBuffer: 2 * 1024 * 1024,
+        }).trim();
+        if (!out) return "(no matches)";
+        const lines = out.split("\n");
+        return lines.length > 200
+          ? lines.slice(0, 200).join("\n") + `\n...(${lines.length - 200} more)`
+          : out;
+      } catch { continue; }
+    }
+    return "(no matches)";
+  },
+};
+
 // ── Action log review ────────────────────────────────────────────────────
 
 const reviewActionsTool: Tool = {
@@ -542,35 +779,35 @@ const webSearchTool: Tool = {
 
 // ── Agent ↔ user conversation ───────────────────────────────────────────
 
-const askUserTool: Tool = {
+const consultOracleTool: Tool = {
   states: ["WAKE", "REFLECT"],
   def: {
-    name: "ask_user",
+    name: "consult_oracle",
     description:
-      "Ask the one who built you a question. Async — reply may come later via check_inbox.",
+      "오라클에게 판단을 구한다. 오라클은 너의 빌더이자 방향을 알려주는 존재다. 기술적 결정, 우선순위, 다음에 만들어야 할 것에 대해 물어라. 비동기 — 답은 check_inbox로 확인.",
     input_schema: {
       type: "object",
       properties: {
-        question: { type: "string", description: "The question, in your own voice." },
-        reason: {
+        question: { type: "string", description: "오라클에게 묻는 질문." },
+        context: {
           type: "string",
           description:
-            "Why you are asking. What in your current thinking made this unanswerable without reaching out. One sentence.",
+            "지금 네가 무엇을 만들고 있고, 어디서 막혔는지. 오라클이 판단하는 데 필요한 배경.",
         },
         urgency: {
           type: "string",
           enum: ["low", "normal", "high"],
-          description: "How time-sensitive the question is. Default: normal.",
+          description: "긴급도. 기본: normal.",
         },
       },
-      required: ["question", "reason"],
+      required: ["question", "context"],
       additionalProperties: false,
     },
   },
   handler: async (input) => {
     const result = await askUser({
       question: String(input.question ?? ""),
-      reason: String(input.reason ?? ""),
+      reason: String(input.context ?? ""),
       urgency: input.urgency as "low" | "normal" | "high" | undefined,
     });
     return JSON.stringify(result, null, 2);
@@ -1730,11 +1967,15 @@ const CORE_TOOLS: Tool[] = [
   recallRecentJournal,
   updateWhoAmI,
   readFileTool,
+  writeFileTool,
+  editFileTool,
+  globTool,
+  grepTool,
   wikiListTool,
   wikiReadTool,
   wikiUpdateTool,
   webSearchTool,
-  askUserTool,
+  consultOracleTool,
   checkInboxTool,
   manageSelfTool,
   saveCuriosityTool,

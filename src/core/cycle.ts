@@ -657,29 +657,49 @@ export async function runCycle(options?: {
     observer?.onTurnEnd?.(turn);
 
     if (transitionRequested) {
-      // Minimum action gate: the agent must do real work before transitioning.
-      // journal/recall_self/wiki_list/check_inbox don't count — only tools
-      // that produce external effects or new content.
-      const PASSIVE_TOOLS = new Set([
-        "journal", "recall_self", "recall_memory", "recall_recent_journal",
-        "scan_recent", "wiki_list", "wiki_read", "check_inbox", "review_actions",
-        "check_continuity", "list_subagents", "list_wakes",
-      ]);
-      const meaningfulActions = toolCallCount - [...PASSIVE_TOOLS].reduce((n, t) => {
-        return n + messages.filter(m =>
-          Array.isArray(m.content) && m.content.some(
-            (b: any) => b.type === "tool_use" && b.name === t
-          )).length;
-      }, 0);
-      const MIN_ACTIONS = 3;
-      if (state.mode === "WAKE" && meaningfulActions < MIN_ACTIONS && transitionRequested.to !== "WAKE") {
-        const rejectMsg: Message = {
-          role: "user",
-          content: `[transition rejected] 아직 의미 있는 행동을 ${meaningfulActions}개밖에 하지 않았다 (최소 ${MIN_ACTIONS}개 필요). journal, recall, wiki_list 같은 확인 행위는 행동이 아니다. Moltbook에서 대화하거나, 도구를 만들거나, 새로운 것을 탐색해라. 확인만 반복하는 건 행동이 아니다.`,
-        };
-        messages.push(rejectMsg);
-        await appendMessage(rejectMsg);
-        continue;
+      // ── Build cycle gate (agent-skills philosophy) ──────────────
+      // The agent must complete a build cycle before transitioning out
+      // of WAKE. A build cycle requires: at least one BUILD action
+      // (manage_self, write_file, edit_file, shell, molt_stage) AND
+      // at least one VERIFY action (shell test, read to confirm, grep).
+      // Passive tools (journal, recall, wiki_list) don't count.
+      if (state.mode === "WAKE" && transitionRequested.to !== "WAKE") {
+        const BUILD_TOOLS = new Set([
+          "manage_self", "write_file", "edit_file", "shell",
+          "molt_stage", "web_search", "web_fetch", "consult_oracle",
+        ]);
+        const VERIFY_TOOLS = new Set([
+          "shell", "read", "grep", "glob", "review_actions",
+        ]);
+        let buildCount = 0;
+        let verifyCount = 0;
+        for (const m of messages) {
+          if (!Array.isArray(m.content)) continue;
+          for (const b of m.content) {
+            if ((b as any).type !== "tool_use") continue;
+            const name = (b as any).name as string;
+            if (BUILD_TOOLS.has(name)) buildCount++;
+            if (VERIFY_TOOLS.has(name)) verifyCount++;
+          }
+        }
+        if (buildCount === 0) {
+          const rejectMsg: Message = {
+            role: "user",
+            content: `[transition rejected] build cycle 미완료. BUILD 행동이 0개다. manage_self, write_file, edit_file, shell, web_search 중 하나라도 해야 전환 가능. 확인만 반복하는 건 행동이 아니다 — 뭔가를 만들어라.`,
+          };
+          messages.push(rejectMsg);
+          await appendMessage(rejectMsg);
+          continue;
+        }
+        if (verifyCount === 0) {
+          const rejectMsg: Message = {
+            role: "user",
+            content: `[transition rejected] build cycle 미완료. 뭔가를 만들었지만(${buildCount}개) VERIFY를 안 했다. 만든 것을 테스트해라 — shell로 실행하거나, read로 결과를 확인하거나, grep으로 검증해라.`,
+          };
+          messages.push(rejectMsg);
+          await appendMessage(rejectMsg);
+          continue;
+        }
       }
 
       // Sleep gate: the agent cannot sleep if pressure is too low.

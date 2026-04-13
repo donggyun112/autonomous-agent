@@ -174,7 +174,7 @@ function toolColor(name: string): string {
     return fg.cyan;      // knowledge
   if (["read", "web_search"].includes(name))
     return fg.blue;      // world
-  if (["ask_user", "check_inbox", "write_letter"].includes(name))
+  if (["consult_oracle", "check_inbox", "write_letter"].includes(name))
     return fg.green;     // conversation
   if (["summon", "list_subagents", "check_subagent"].includes(name))
     return `\x1b[38;5;208m`; // inner voices (orange)

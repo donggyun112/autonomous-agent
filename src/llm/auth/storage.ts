@@ -13,6 +13,7 @@ const OAUTH_FILE = join(AUTH_DIR, "oauth.json");
 
 type StoredCredentials = {
   anthropic?: OAuthCredentials;
+  openai?: OAuthCredentials & { idToken?: string };
 };
 
 export async function loadCredentials(): Promise<StoredCredentials> {
@@ -34,6 +35,14 @@ export async function saveAnthropicCredentials(creds: OAuthCredentials): Promise
   } catch {
     // chmod may fail on some filesystems — not critical
   }
+}
+
+export async function saveOpenAICredentials(creds: OAuthCredentials & { idToken?: string }): Promise<void> {
+  const existing = await loadCredentials();
+  const updated: StoredCredentials = { ...existing, openai: creds };
+  await mkdir(dirname(OAUTH_FILE), { recursive: true });
+  await writeFile(OAUTH_FILE, JSON.stringify(updated, null, 2), "utf-8");
+  try { await chmod(OAUTH_FILE, 0o600); } catch {}
 }
 
 export async function clearAnthropicCredentials(): Promise<void> {

@@ -445,8 +445,10 @@ async function live(): Promise<void> {
       const { classifyError } = await import("./core/errors.js");
       const classified = classifyError(err);
       const isInfraError = classified.category === "rate_limit" || classified.category === "network";
+      const isParseError = (err as Error).message?.includes("JSON") || (err as Error).message?.includes("parse");
+      const isNonCodeError = isInfraError || isParseError;
 
-      if (isInfraError) {
+      if (isNonCodeError) {
         // For rate_limit/network: just back off, don't count toward rollback.
         const backoff = classified.category === "rate_limit" ? 60_000 : 30_000;
         console.log(`[live] ${classified.category} — backing off ${backoff / 1000}s`);

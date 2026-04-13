@@ -58,6 +58,7 @@ import { readToday, readYesterday } from "../memory/journal.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, resetActivatedTools, extendedToolNames, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
+import { unreadInboxCount } from "./conversation.js";
 import { resetTrace, saveTrace, startSpan, endSpan } from "./trace.js";
 import { enqueueFailed } from "./dead-letter.js";
 import { compactIfNeeded, resetCompactionState } from "./compact.js";
@@ -298,6 +299,22 @@ export async function runCycle(options?: {
     // ok
   }
 
+  // Inbox notification — check if the builder sent a message.
+  let inboxAlert = "";
+  try {
+    const unread = await unreadInboxCount();
+    if (unread > 0) {
+      inboxAlert = [
+        "---",
+        "## 📬 you have mail",
+        "",
+        `${unread} unread message(s) from your builder. Call check_inbox() to read.`,
+      ].join("\n");
+    }
+  } catch {
+    // ok
+  }
+
   // Curiosity blocks — random stimuli to prevent repetitive thinking.
   let curiosityBlocks = "";
   try {
@@ -348,6 +365,7 @@ export async function runCycle(options?: {
     driftSection, pressureNote,
     "---", `## you are currently in state: ${state.mode}`, "", modePrompt,
     `Extended tools (load via more_tools): ${extendedToolNames().join(", ")}`,
+    inboxAlert,
     "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
   ];
 
@@ -452,17 +470,9 @@ export async function runCycle(options?: {
     state.modeTurn += 1;
     state.totalTurns += 1;
 
-    // If the response had no tool calls, fold the text into journal-as-thought
-    // and consider it a quiet turn.
+    // If the response had no tool calls, treat as a quiet turn.
+    // DISABLED auto-journal: Soren must consciously call journal() to record thoughts.
     if (response.toolCalls.length === 0) {
-      // Treat plain text as a thought in WAKE/REFLECT, ignore in SLEEP.
-      if ((state.mode === "WAKE" || state.mode === "REFLECT") && response.text.trim()) {
-        const journalTool = tools.find((t) => t.def.name === "journal");
-        if (journalTool) {
-          await journalTool.handler({ text: response.text });
-          toolCallCount += 1;
-        }
-      }
       // Without a tool call asking to continue, treat as a rest.
       result = "rested";
       break;

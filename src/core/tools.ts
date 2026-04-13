@@ -1581,6 +1581,123 @@ const shellTool: Tool = {
   },
 };
 
+// ── Web fetch (Claude Code pattern: fetch + HTML→text + cache) ──────────
+// Reference: claude-code/tools/WebFetchTool — Turndown for HTML→markdown,
+// LRU cache with TTL, redirect handling, http→https upgrade.
+// We skip Turndown (external dep) and use regex stripping instead.
+
+const _fetchCache = new Map<string, { text: string; ts: number }>();
+const FETCH_CACHE_TTL = 15 * 60 * 1000; // 15 min (same as Claude Code)
+const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5MB cap
+const MAX_FETCH_CACHE = 30;
+
+function htmlToText(html: string): string {
+  return html
+    // Remove script/style/noscript blocks entirely
+    .replace(/<(script|style|noscript|svg|iframe)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    // Remove HTML comments
+    .replace(/<!--[\s\S]*?-->/g, "")
+    // Convert headers to markdown-style
+    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, text) => "\n" + "#".repeat(Number(level)) + " " + text.trim() + "\n")
+    // Convert <br> to newline
+    .replace(/<br\s*\/?>/gi, "\n")
+    // Convert <p> to double newline
+    .replace(/<\/p>/gi, "\n\n")
+    // Convert <li> to bullet
+    .replace(/<li[^>]*>/gi, "\n- ")
+    // Convert <a> to [text](href)
+    .replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+    // Strip remaining tags
+    .replace(/<[^>]+>/g, "")
+    // Decode common HTML entities
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ")
+    // Collapse whitespace
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const webFetchTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "web_fetch",
+    description: "Fetch a URL and return readable text. Works for web pages, APIs, docs. HTML is auto-converted to text. Cached 15 min.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The URL to fetch. http:// auto-upgraded to https://." },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  maxOutputChars: 30_000,
+  handler: async (input) => {
+    let url = String(input.url ?? "").trim();
+    if (!url) return "[error] url is required";
+
+    // Validate URL
+    try { new URL(url); } catch { return `[error] invalid URL: ${url}`; }
+
+    // Upgrade http → https (Claude Code pattern)
+    url = url.replace(/^http:\/\//i, "https://");
+
+    // Check cache
+    const cached = _fetchCache.get(url);
+    if (cached && Date.now() - cached.ts < FETCH_CACHE_TTL) {
+      return cached.text;
+    }
+
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent": "autonomous-agent/1.0",
+          "Accept": "text/html, text/markdown, application/json, text/plain, */*",
+        },
+        signal: AbortSignal.timeout(30_000),
+        redirect: "follow",
+      });
+
+      if (!resp.ok) return `[error] ${resp.status} ${resp.statusText} — ${url}`;
+
+      const contentType = resp.headers.get("content-type") ?? "";
+      const buffer = await resp.arrayBuffer();
+      if (buffer.byteLength > MAX_FETCH_BYTES) {
+        return `[error] response too large (${(buffer.byteLength / 1024 / 1024).toFixed(1)}MB). Max 5MB.`;
+      }
+
+      const raw = new TextDecoder().decode(buffer);
+      let result: string;
+
+      if (contentType.includes("text/html")) {
+        result = htmlToText(raw);
+      } else if (contentType.includes("application/json")) {
+        // Pretty-print JSON
+        try { result = JSON.stringify(JSON.parse(raw), null, 2); } catch { result = raw; }
+      } else {
+        result = raw;
+      }
+
+      // Truncate if still too long
+      if (result.length > 30_000) {
+        result = result.slice(0, 30_000) + "\n\n[truncated — original was " + result.length + " chars]";
+      }
+
+      // Cache (evict oldest if full)
+      if (_fetchCache.size >= MAX_FETCH_CACHE) {
+        const oldest = _fetchCache.keys().next().value;
+        if (oldest !== undefined) _fetchCache.delete(oldest);
+      }
+      _fetchCache.set(url, { text: result, ts: Date.now() });
+
+      return result;
+    } catch (err) {
+      return `[error] ${(err as Error).message}`;
+    }
+  },
+};
+
 // ── Registry ────────────────────────────────────────────────────────────
 
 // ── Core tools: always loaded. These are the essential verbs. ────────────
@@ -1602,6 +1719,7 @@ const CORE_TOOLS: Tool[] = [
   findFilesTool,
   todoTool,
   shellTool,
+  webFetchTool,
   transitionTool,
   finishMode,
 ];

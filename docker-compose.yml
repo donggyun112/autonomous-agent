@@ -16,9 +16,10 @@
 #   docker compose run --rm agent init <name>  — first birth
 #
 # Auth:
-#   Either set ANTHROPIC_API_KEY in the host .env (picked up automatically),
-#   or run `docker compose run --rm agent login` to do the OAuth flow and
-#   save credentials to ./data/.auth/oauth.json which persists across runs.
+#   Anthropic: set ANTHROPIC_API_KEY in the host .env, or run
+#   `docker compose run --rm agent login` to do the OAuth flow and save
+#   credentials to ./data/.auth/oauth.json which persists across runs.
+#   OpenAI: set AGENT_LLM=openai and OPENAI_API_KEY in the host .env.
 
 services:
   agent:
@@ -54,4 +55,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Dev convenience — bind mount src so changes take effect without rebuild.
       # Remove this line for production.
-      - ./src:/agent/src:ro
+      - ./src:/agent/src
+      # Shared /tmp — agent can leave files here that the host can see.
+      - ./shared:/tmp/shared

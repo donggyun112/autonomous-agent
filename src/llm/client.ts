@@ -15,8 +15,60 @@ import { logSystem } from "../core/system-log.js";
 
 config();
 
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-6";
-const AUXILIARY_MODEL = process.env.AUXILIARY_MODEL ?? "claude-sonnet-4-20250514";
+export type LlmProvider = "anthropic" | "openai";
+
+const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
+const DEFAULT_ANTHROPIC_AUXILIARY_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+const DEFAULT_OPENAI_AUXILIARY_MODEL = "gpt-5.4-nano";
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (value && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
+
+function normalizeProvider(rawProvider: string | undefined): LlmProvider {
+  return rawProvider?.toLowerCase() === "openai" ? "openai" : "anthropic";
+}
+
+export function resolveProviderConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): {
+  provider: LlmProvider;
+  defaultModel: string;
+  auxiliaryModel: string;
+} {
+  const provider = normalizeProvider(env.AGENT_LLM);
+
+  if (provider === "openai") {
+    return {
+      provider,
+      defaultModel:
+        firstNonEmpty(env.AGENT_MODEL, env.OPENAI_MODEL) ?? DEFAULT_OPENAI_MODEL,
+      auxiliaryModel:
+        firstNonEmpty(env.AUXILIARY_MODEL, env.OPENAI_AUXILIARY_MODEL) ??
+        DEFAULT_OPENAI_AUXILIARY_MODEL,
+    };
+  }
+
+  return {
+    provider,
+    defaultModel:
+      firstNonEmpty(env.AGENT_MODEL, env.ANTHROPIC_MODEL) ??
+      DEFAULT_ANTHROPIC_MODEL,
+    auxiliaryModel:
+      firstNonEmpty(env.AUXILIARY_MODEL, env.ANTHROPIC_AUXILIARY_MODEL) ??
+      DEFAULT_ANTHROPIC_AUXILIARY_MODEL,
+  };
+}
+
+const {
+  provider: LLM_PROVIDER,
+  defaultModel: DEFAULT_MODEL,
+  auxiliaryModel: AUXILIARY_MODEL,
+} = resolveProviderConfig();
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1_000;
@@ -157,10 +209,6 @@ async function mockThink(args: {
   return result;
 }
 
-// ── Provider detection ──────────────────────────────────────────────────
-// AGENT_LLM=openai → use OpenAI SDK. Otherwise Anthropic (default).
-const LLM_PROVIDER = (process.env.AGENT_LLM ?? "anthropic").toLowerCase();
-
 // ── OpenAI provider ─────────────────────────────────────────────────────
 
 async function thinkOnceOpenAI(args: {
@@ -188,6 +236,9 @@ async function thinkOnceOpenAI(args: {
       }
     }
   } catch {}
+  if (!apiKey) {
+    throw new Error("No OpenAI auth available. Set OPENAI_API_KEY in .env.");
+  }
   const client = new OpenAI({ apiKey });
   const model = args.model ?? DEFAULT_MODEL;
 
@@ -236,7 +287,7 @@ async function thinkOnceOpenAI(args: {
 
   const response = await client.chat.completions.create({
     model,
-    max_tokens: args.maxTokens ?? 4096,
+    max_completion_tokens: args.maxTokens ?? 4096,
     messages: oaiMessages as never,
     tools: oaiTools as never,
     stream: true,
@@ -446,7 +497,11 @@ export async function think(args: {
       const classified = classifyError(err);
 
       // Auth errors: try rotating credentials before retrying.
-      if (classified.category === "auth" && classified.recovery.should_rotate_credential) {
+      if (
+        LLM_PROVIDER === "anthropic" &&
+        classified.category === "auth" &&
+        classified.recovery.should_rotate_credential
+      ) {
         const source = await getAuthSource();
         if ("rotateCredential" in source && typeof (source as Record<string, unknown>).rotateCredential === "function") {
           const rotated = await (source as { rotateCredential: () => Promise<boolean> }).rotateCredential();

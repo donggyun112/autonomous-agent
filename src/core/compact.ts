@@ -10,7 +10,7 @@
 // snip + microcompact + autocompact + collapse layered together). For our
 // contemplative agent it does not need to be elaborate.
 
-import { think, type Message } from "../llm/client.js";
+import { resolveProviderConfig, think, type Message } from "../llm/client.js";
 import { isToolPreserved } from "./tools.js";
 import { logSystem } from "./system-log.js";
 
@@ -19,6 +19,8 @@ import { logSystem } from "./system-log.js";
 const CHARS_PER_TOKEN = 4;
 const COMPACT_TRIGGER_TOKENS = 30_000;
 const KEEP_RECENT_TOKENS = 12_000;
+const OPENAI_REQUEST_BUDGET_TOKENS = 24_000;
+const OPENAI_KEEP_RECENT_TOKENS = 8_000;
 
 // Hermes pattern: old tool results in the middle of conversation are rarely
 // useful. Before the expensive LLM summarization pass, we do a cheap pre-prune:
@@ -44,6 +46,10 @@ function estimateTokens(messages: Message[]): number {
     }
   }
   return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
+function estimateTextTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
 function messagesAsText(messages: Message[]): string {
@@ -97,11 +103,11 @@ function extractToolActions(messages: Message[]): string {
 
 // Find the split point so that everything after `split` is roughly
 // `KEEP_RECENT_TOKENS` worth of content.
-function findSplit(messages: Message[]): number {
+function findSplit(messages: Message[], keepRecentTokens: number): number {
   let kept = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msgTokens = estimateTokens([messages[i]]);
-    if (kept + msgTokens > KEEP_RECENT_TOKENS) {
+    if (kept + msgTokens > keepRecentTokens) {
       // Make sure we don't split between an assistant tool_use and its
       // matching tool_result — the API rejects orphan tool_use blocks.
       // Walk forward to the next safe boundary (after a user/tool_result).
@@ -260,16 +266,31 @@ Write in the agent's own first-person voice.`;
 export async function compactIfNeeded(
   messages: Message[],
   systemPromptForContext: string,
+  options?: {
+    reservedCompletionTokens?: number;
+  },
 ): Promise<CompactResult | null> {
+  const provider = resolveProviderConfig().provider;
   const totalTokens = estimateTokens(messages);
-  if (totalTokens < COMPACT_TRIGGER_TOKENS) {
-    return null;
-  }
+  const systemPromptTokens = estimateTextTokens(systemPromptForContext);
+  const reservedCompletionTokens = options?.reservedCompletionTokens ?? 4096;
+  const estimatedRequestTokens =
+    totalTokens + systemPromptTokens + reservedCompletionTokens;
+
+  const shouldCompact =
+    provider === "openai"
+      ? estimatedRequestTokens >= OPENAI_REQUEST_BUDGET_TOKENS
+      : totalTokens >= COMPACT_TRIGGER_TOKENS;
+
+  if (!shouldCompact) return null;
   if (messages.length < 4) {
     return null;
   }
 
-  const splitAt = findSplit(messages);
+  const splitAt = findSplit(
+    messages,
+    provider === "openai" ? OPENAI_KEEP_RECENT_TOKENS : KEEP_RECENT_TOKENS,
+  );
   if (splitAt < 2) return null;
 
   // Pre-prune old tool outputs before LLM summarization (Hermes pattern).

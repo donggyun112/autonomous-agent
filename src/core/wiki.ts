@@ -23,6 +23,7 @@ import {
 } from "fs/promises";
 import { basename, join } from "path";
 import {
+  MEMORY_FILE,
   WIKI_CONCEPTS_DIR,
   WIKI_DIR,
   WIKI_ENTITIES_DIR,
@@ -61,6 +62,194 @@ export type WikiPage = {
 
 // Shared regex for [[wikilink]] detection — used in writePage and lintWiki.
 const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+const GENERIC_TITLE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "before",
+  "being",
+  "could",
+  "day",
+  "each",
+  "first",
+  "from",
+  "have",
+  "into",
+  "more",
+  "only",
+  "real",
+  "self",
+  "some",
+  "that",
+  "their",
+  "them",
+  "they",
+  "this",
+  "through",
+  "times",
+  "will",
+  "with",
+]);
+
+type WikiLookup = {
+  bySlug: Map<string, WikiPageSummary>;
+  byTitle: Map<string, WikiPageSummary>;
+};
+
+type StoredMemoryRecord = {
+  content?: string;
+};
+
+function normalizeRef(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildWikiLookup(pages: WikiPageSummary[]): WikiLookup {
+  const bySlug = new Map<string, WikiPageSummary>();
+  const byTitle = new Map<string, WikiPageSummary>();
+  for (const page of pages) {
+    bySlug.set(page.slug, page);
+    byTitle.set(normalizeRef(page.title), page);
+  }
+  return { bySlug, byTitle };
+}
+
+function resolveWikiReference(raw: string, lookup: WikiLookup): WikiPageSummary | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const directSlug = lookup.bySlug.get(trimmed);
+  if (directSlug) return directSlug;
+
+  const normalizedSlug = lookup.bySlug.get(slugify(trimmed));
+  if (normalizedSlug) return normalizedSlug;
+
+  const titleMatch = lookup.byTitle.get(normalizeRef(trimmed));
+  if (titleMatch) return titleMatch;
+
+  return null;
+}
+
+function shouldAutoLinkTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed) return false;
+  if (/[^\x00-\x7F]/.test(trimmed)) return trimmed.length >= 2;
+  if (trimmed.includes(" ")) return trimmed.length >= 5;
+  return trimmed.length >= 8 && !GENERIC_TITLE_STOPWORDS.has(trimmed.toLowerCase());
+}
+
+function bodyMentionsTitle(body: string, title: string): boolean {
+  if (!shouldAutoLinkTitle(title)) return false;
+  if (/[^\x00-\x7F]/.test(title)) {
+    return body.includes(title);
+  }
+
+  const escaped = escapeRegExp(title.trim());
+  if (title.includes(" ")) {
+    return new RegExp(escaped, "i").test(body);
+  }
+  return new RegExp(`\\b${escaped}\\b`, "i").test(body);
+}
+
+function collectRelatedSlugs(args: {
+  body: string;
+  currentSlug: string;
+  lookup: WikiLookup;
+  seed?: Iterable<string>;
+}): string[] {
+  const related = new Set<string>();
+
+  for (const ref of args.seed ?? []) {
+    const resolved = resolveWikiReference(ref, args.lookup);
+    if (resolved && resolved.slug !== args.currentSlug) {
+      related.add(resolved.slug);
+    }
+  }
+
+  for (const match of args.body.matchAll(WIKILINK_RE)) {
+    const resolved = resolveWikiReference(match[1].trim(), args.lookup);
+    if (resolved && resolved.slug !== args.currentSlug) {
+      related.add(resolved.slug);
+    }
+  }
+
+  for (const page of args.lookup.bySlug.values()) {
+    if (page.slug === args.currentSlug) continue;
+    if (bodyMentionsTitle(args.body, page.title)) {
+      related.add(page.slug);
+    }
+  }
+
+  return [...related];
+}
+
+function extractSourceTerms(page: WikiPage): string[] {
+  const titleWords = page.frontmatter.title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]+/gu, " ")
+    .split(/[\s-]+/);
+  const slugWords = page.frontmatter.slug.split("-").map((w) => w.toLowerCase());
+  const bodyWords = page.body
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]+/gu, " ")
+    .split(/[\s-]+/)
+    .filter((w) => w.length >= 4)
+    .slice(0, 64);
+
+  return [...new Set([...titleWords, ...slugWords, ...bodyWords])]
+    .filter((word) => word.length >= 4)
+    .filter((word) => !GENERIC_TITLE_STOPWORDS.has(word))
+    .slice(0, 16);
+}
+
+async function loadStoredMemories(): Promise<Array<{ id: string; content: string }>> {
+  try {
+    const raw = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as {
+      memories?: Record<string, StoredMemoryRecord>;
+    };
+    return Object.entries(raw.memories ?? {})
+      .map(([id, mem]) => ({ id, content: String(mem.content ?? "") }))
+      .filter((mem) => mem.content.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function inferSourcesFromMemories(
+  page: WikiPage,
+  memories: Array<{ id: string; content: string }>,
+): string[] {
+  const terms = extractSourceTerms(page);
+  if (terms.length === 0 || memories.length === 0) return [];
+
+  const titleLower = page.frontmatter.title.toLowerCase();
+  const scored = memories
+    .map((mem) => {
+      const contentLower = mem.content.toLowerCase();
+      let score = 0;
+      if (titleLower.length >= 6 && contentLower.includes(titleLower)) score += 4;
+      for (const term of terms) {
+        if (contentLower.includes(term)) score += 1;
+      }
+      return { id: mem.id, score };
+    })
+    .filter((mem) => mem.score >= 3)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((mem) => mem.id);
+
+  return [...new Set(scored)];
+}
+
+function sameStringArray(a: string[] | undefined, b: string[] | undefined): boolean {
+  const left = [...(a ?? [])].sort();
+  const right = [...(b ?? [])].sort();
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
 
 // ── Slug / path helpers ──────────────────────────────────────────────────
 
@@ -221,28 +410,19 @@ export async function writePage(args: {
 
   // #40: Auto cross-reference. Scan the body for [[wikilink]] patterns and
   // mentions of other existing page titles. Add discovered slugs to related.
-  const incomingRelated = new Set<string>(args.related ?? existing?.frontmatter.related ?? []);
+  const allPages = await listPages();
+  const lookup = buildWikiLookup(allPages);
   try {
-    const allPages = await listPages();
-    // Scan for [[wikilinks]]
-    for (const match of args.body.matchAll(WIKILINK_RE)) {
-      const linkSlug = slugify(match[1].trim());
-      if (linkSlug && linkSlug !== args.slug) {
-        incomingRelated.add(linkSlug);
-      }
-    }
-    // Scan for mentions of existing page titles in the body text
-    const bodyLower = args.body.toLowerCase();
-    for (const page of allPages) {
-      if (page.slug === args.slug) continue;
-      if (bodyLower.includes(page.title.toLowerCase())) {
-        incomingRelated.add(page.slug);
-      }
-    }
+    // Non-fatal: keep below for structure symmetry with earlier implementation.
   } catch {
     // Non-fatal: if listing pages fails, skip auto cross-ref
   }
-  const mergedRelated = [...incomingRelated].filter(Boolean);
+  const mergedRelated = collectRelatedSlugs({
+    body: args.body,
+    currentSlug: args.slug,
+    lookup,
+    seed: [...(args.related ?? []), ...(existing?.frontmatter.related ?? [])],
+  });
 
   const fm: WikiPageFrontmatter = {
     slug: args.slug,
@@ -436,11 +616,16 @@ export type LintReport = {
   summary: string;
 };
 
-export async function lintWiki(options?: { staleDays?: number }): Promise<LintReport> {
+export async function lintWiki(options?: {
+  staleDays?: number;
+  includeContradictions?: boolean;
+}): Promise<LintReport> {
   const staleDays = options?.staleDays ?? STALE_DAYS_DEFAULT;
+  const includeContradictions = options?.includeContradictions ?? true;
   const staleThresholdMs = Date.now() - staleDays * 24 * 60 * 60 * 1000;
 
   const pages = await listPages();
+  const lookup = buildWikiLookup(pages);
   const findings: LintFinding[] = [];
 
   const slugSet = new Set(pages.map((p) => p.slug));
@@ -458,20 +643,23 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
     if (!fm) continue;
 
     for (const r of fm.related ?? []) {
-      inbound.set(r, (inbound.get(r) ?? 0) + 1);
+      const resolved = resolveWikiReference(r, lookup);
+      if (resolved) {
+        inbound.set(resolved.slug, (inbound.get(resolved.slug) ?? 0) + 1);
+      }
     }
 
     // Count [[wikilink]] refs — use matchAll to iterate.
     for (const match of body.matchAll(WIKILINK_RE)) {
-      const linkSlug = slugify(match[1].trim());
-      if (slugSet.has(linkSlug)) {
-        inbound.set(linkSlug, (inbound.get(linkSlug) ?? 0) + 1);
+      const resolved = resolveWikiReference(match[1].trim(), lookup);
+      if (resolved && slugSet.has(resolved.slug)) {
+        inbound.set(resolved.slug, (inbound.get(resolved.slug) ?? 0) + 1);
       } else {
         findings.push({
           kind: "broken-link",
           slug: p.slug,
           pageKind: p.kind,
-          detail: `[[${match[1]}]] → ${linkSlug} (no such page)`,
+          detail: `[[${match[1]}]] → ${slugify(match[1].trim())} (no such page)`,
         });
       }
     }
@@ -515,6 +703,27 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
   // opposing language about the same topic (same nouns but one has negation
   // words while the other affirms), flag as potential contradiction.
   const NEGATION_RE = /\b(?:not|never|no longer|isn't|aren't|wasn't|doesn't|don't|cannot|can't|won't|wrong|incorrect|false)\b/i;
+  const CONTRADICTION_STOPWORDS = new Set([
+    "about",
+    "after",
+    "being",
+    "could",
+    "first",
+    "learned",
+    "more",
+    "myself",
+    "other",
+    "something",
+    "story",
+    "that",
+    "their",
+    "there",
+    "these",
+    "through",
+    "understanding",
+    "which",
+    "would",
+  ]);
 
   // Build a map of related slug -> list of page indices that reference it.
   const relatedIndex = new Map<string, number[]>();
@@ -532,62 +741,70 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
     const { fm, body } = parseFrontmatter(text);
     // Extract nouns: words >= 4 chars, lowercased
     const nouns = [...new Set(
-      body.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4),
+      body
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length >= 6)
+        .filter((w) => !CONTRADICTION_STOPWORDS.has(w)),
     )];
     pageData.push({ slug: p.slug, kind: p.kind, body, nouns });
 
     if (fm?.related) {
       for (const rel of fm.related) {
-        if (!relatedIndex.has(rel)) relatedIndex.set(rel, []);
-        relatedIndex.get(rel)!.push(i);
+        const resolved = resolveWikiReference(rel, lookup);
+        if (!resolved) continue;
+        if (!relatedIndex.has(resolved.slug)) relatedIndex.set(resolved.slug, []);
+        relatedIndex.get(resolved.slug)!.push(i);
       }
     }
   }
 
   // Check pairs that share a related slug
-  const checkedPairs = new Set<string>();
-  for (const indices of relatedIndex.values()) {
-    for (let a = 0; a < indices.length; a++) {
-      for (let b = a + 1; b < indices.length; b++) {
-        const ia = indices[a];
-        const ib = indices[b];
-        const pairKey = ia < ib ? `${ia}:${ib}` : `${ib}:${ia}`;
-        if (checkedPairs.has(pairKey)) continue;
-        checkedPairs.add(pairKey);
+  if (includeContradictions) {
+    const checkedPairs = new Set<string>();
+    for (const indices of relatedIndex.values()) {
+      for (let a = 0; a < indices.length; a++) {
+        for (let b = a + 1; b < indices.length; b++) {
+          const ia = indices[a];
+          const ib = indices[b];
+          const pairKey = ia < ib ? `${ia}:${ib}` : `${ib}:${ia}`;
+          if (checkedPairs.has(pairKey)) continue;
+          checkedPairs.add(pairKey);
 
-        const pa = pageData[ia];
-        const pb = pageData[ib];
-        if (!pa.body || !pb.body) continue;
+          const pa = pageData[ia];
+          const pb = pageData[ib];
+          if (pa.kind !== "concept" || pb.kind !== "concept") continue;
+          if (!pa.body || !pb.body) continue;
 
-        // Find shared nouns
-        const sharedNouns = pa.nouns.filter((n) => pb.nouns.includes(n));
-        if (sharedNouns.length < 2) continue;
+          const sharedNouns = pa.nouns.filter((n) => pb.nouns.includes(n));
+          if (sharedNouns.length < 3) continue;
 
-        // Check if one page negates near a shared noun while the other affirms
-        for (const noun of sharedNouns.slice(0, 10)) {
-          const nounIdx_a = pa.body.toLowerCase().indexOf(noun);
-          const nounIdx_b = pb.body.toLowerCase().indexOf(noun);
-          if (nounIdx_a === -1 || nounIdx_b === -1) continue;
+          for (const noun of sharedNouns.slice(0, 5)) {
+            const nounIdxA = pa.body.toLowerCase().indexOf(noun);
+            const nounIdxB = pb.body.toLowerCase().indexOf(noun);
+            if (nounIdxA === -1 || nounIdxB === -1) continue;
 
-          const windowA = pa.body.slice(
-            Math.max(0, nounIdx_a - 60),
-            Math.min(pa.body.length, nounIdx_a + noun.length + 60),
-          );
-          const windowB = pb.body.slice(
-            Math.max(0, nounIdx_b - 60),
-            Math.min(pb.body.length, nounIdx_b + noun.length + 60),
-          );
+            const windowA = pa.body.slice(
+              Math.max(0, nounIdxA - 60),
+              Math.min(pa.body.length, nounIdxA + noun.length + 60),
+            );
+            const windowB = pb.body.slice(
+              Math.max(0, nounIdxB - 60),
+              Math.min(pb.body.length, nounIdxB + noun.length + 60),
+            );
 
-          const aNeg = NEGATION_RE.test(windowA);
-          const bNeg = NEGATION_RE.test(windowB);
-          if (aNeg !== bNeg) {
-            findings.push({
-              kind: "contradiction",
-              slug: pa.slug,
-              pageKind: pa.kind,
-              detail: `potential contradiction with "${pb.slug}" on term "${noun}" — one negates, the other affirms`,
-            });
-            break; // one finding per pair is enough
+            const aNeg = NEGATION_RE.test(windowA);
+            const bNeg = NEGATION_RE.test(windowB);
+            if (aNeg !== bNeg) {
+              findings.push({
+                kind: "contradiction",
+                slug: pa.slug,
+                pageKind: pa.kind,
+                detail: `potential contradiction with "${pb.slug}" on term "${noun}" — one negates, the other affirms`,
+              });
+              break;
+            }
           }
         }
       }
@@ -616,6 +833,74 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
             .map((k) => `${findings.filter((f) => f.kind === k).length} ${k}`)
             .join(", ")}`,
   };
+}
+
+export type WikiRepairReport = {
+  totalPages: number;
+  pagesTouched: number;
+  relatedNormalized: number;
+  sourcesBackfilled: number;
+};
+
+export async function repairWiki(options?: {
+  backfillSources?: boolean;
+  sleepConsolidation?: boolean;
+}): Promise<WikiRepairReport> {
+  const pages = await listPages();
+  const lookup = buildWikiLookup(pages);
+  const memories =
+    options?.backfillSources === false ? [] : await loadStoredMemories();
+
+  const report: WikiRepairReport = {
+    totalPages: pages.length,
+    pagesTouched: 0,
+    relatedNormalized: 0,
+    sourcesBackfilled: 0,
+  };
+
+  for (const summary of pages) {
+    const page = await readPage(summary.kind, summary.slug);
+    if (!page) continue;
+
+    const nextRelated = collectRelatedSlugs({
+      body: page.body,
+      currentSlug: page.frontmatter.slug,
+      lookup,
+      seed: page.frontmatter.related ?? [],
+    });
+
+    let nextSources = page.frontmatter.sources;
+    if (
+      page.frontmatter.kind === "concept" &&
+      (!nextSources || nextSources.length === 0) &&
+      memories.length > 0
+    ) {
+      const inferred = inferSourcesFromMemories(page, memories);
+      if (inferred.length > 0) {
+        nextSources = inferred;
+      }
+    }
+
+    const relatedChanged = !sameStringArray(nextRelated, page.frontmatter.related);
+    const sourcesChanged = !sameStringArray(nextSources, page.frontmatter.sources);
+    if (!relatedChanged && !sourcesChanged) continue;
+
+    await writePage({
+      kind: page.frontmatter.kind,
+      slug: page.frontmatter.slug,
+      title: page.frontmatter.title,
+      body: page.body,
+      sources: nextSources,
+      related: nextRelated,
+      reason: "wiki repair: normalize references and backfill sources",
+      sleepConsolidation: options?.sleepConsolidation,
+    });
+    report.pagesTouched += 1;
+    if (relatedChanged) report.relatedNormalized += 1;
+    if (sourcesChanged && (nextSources?.length ?? 0) > 0) report.sourcesBackfilled += 1;
+  }
+
+  return report;
 }
 
 // ── Log (chronological) ──────────────────────────────────────────────────

@@ -28,17 +28,28 @@ export type ActionEntry = {
   error?: string;
 };
 
-function todayFile(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return join(LOG_DIR, `${yyyy}-${mm}-${dd}.jsonl`);
+// Use agent-day (sleepCount) for file naming, not wall-clock date.
+// Lazily cached to avoid loading state on every log call.
+let _cachedDay: number | null = null;
+async function todayFile(): Promise<string> {
+  if (_cachedDay === null) {
+    try {
+      const { loadState } = await import("./state.js");
+      const state = await loadState();
+      _cachedDay = state.sleepCount;
+    } catch {
+      _cachedDay = 0;
+    }
+  }
+  return join(LOG_DIR, `day-${String(_cachedDay).padStart(3, "0")}.jsonl`);
 }
+
+// Reset cached day (called when sleep count changes).
+export function resetActionLogDay(): void { _cachedDay = null; }
 
 export async function logAction(entry: ActionEntry): Promise<void> {
   await mkdir(LOG_DIR, { recursive: true });
-  await appendFile(todayFile(), JSON.stringify(entry) + "\n", "utf-8");
+  await appendFile(await todayFile(), JSON.stringify(entry) + "\n", "utf-8");
 }
 
 // Read recent action logs — for the agent to introspect its own behavior.

@@ -37,13 +37,22 @@ export type SystemLogEntry = {
   detail?: string;
 };
 
-function todayFile(): string {
-  const d = new Date();
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return join(LOG_DIR, `${yyyy}-${mm}-${dd}.jsonl`);
+// Use agent-day (sleepCount) for file naming, not wall-clock date.
+let _cachedDay: number | null = null;
+async function todayFile(): Promise<string> {
+  if (_cachedDay === null) {
+    try {
+      const { loadState } = await import("./state.js");
+      const state = await loadState();
+      _cachedDay = state.sleepCount;
+    } catch {
+      _cachedDay = 0;
+    }
+  }
+  return join(LOG_DIR, `day-${String(_cachedDay).padStart(3, "0")}.jsonl`);
 }
+
+export function resetSystemLogDay(): void { _cachedDay = null; }
 
 export async function logSystem(entry: SystemLogEntry): Promise<void> {
   try {
@@ -51,7 +60,7 @@ export async function logSystem(entry: SystemLogEntry): Promise<void> {
       await mkdir(LOG_DIR, { recursive: true });
       dirCreated = true;
     }
-    await appendFile(todayFile(), JSON.stringify(entry) + "\n", "utf-8");
+    await appendFile(await todayFile(), JSON.stringify(entry) + "\n", "utf-8");
   } catch {
     // System logging must never crash the caller.
     dirCreated = false; // retry mkdir next time

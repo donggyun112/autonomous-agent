@@ -9,6 +9,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { DATA } from "../primitives/paths.js";
+import { TIME_SCALE } from "./state.js";
 
 const WAKES_FILE = join(DATA, "scheduled-wakes.json");
 
@@ -126,31 +127,34 @@ export async function popDueWake(): Promise<ScheduledWake | null> {
   if (due.oneShot) {
     wakes.splice(dueIdx, 1);
   } else if (due.intervalMs) {
-    // Advance to next fire time.
-    due.wakeAt = now + due.intervalMs;
+    // intervalMs is in agent-time. Convert to wall-time for next fire.
+    due.wakeAt = now + due.intervalMs / TIME_SCALE;
   }
   await saveWakes(wakes);
   return due;
 }
 
-// Parse human-friendly time strings into epoch ms.
+// Parse human-friendly time strings into epoch ms (wall-clock).
+// The agent communicates in agent-time ("2h" = 2 agent-hours).
+// We convert to wall-time by dividing by TIME_SCALE.
 // Supports: "30m", "2h", "1d", or ISO timestamp.
 export function parseWakeTime(input: string): number | null {
   const trimmed = input.trim();
 
-  // Relative: "30m", "2h", "1d"
+  // Relative: "30m", "2h", "1d" — agent-time, convert to wall-time.
   const relMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*(m|min|h|hr|hour|d|day)s?$/i);
   if (relMatch) {
     const value = parseFloat(relMatch[1]);
     const unit = relMatch[2].toLowerCase();
-    let ms: number;
-    if (unit.startsWith("m")) ms = value * 60_000;
-    else if (unit.startsWith("h")) ms = value * 3_600_000;
-    else ms = value * 86_400_000;
-    return Date.now() + ms;
+    let agentMs: number;
+    if (unit.startsWith("m")) agentMs = value * 60_000;
+    else if (unit.startsWith("h")) agentMs = value * 3_600_000;
+    else agentMs = value * 86_400_000;
+    // Convert agent-time duration to wall-time duration.
+    return Date.now() + agentMs / TIME_SCALE;
   }
 
-  // Absolute: ISO or parseable date string.
+  // Absolute: ISO or parseable date string (wall-clock, no conversion).
   const parsed = Date.parse(trimmed);
   if (Number.isFinite(parsed) && parsed > Date.now()) return parsed;
 

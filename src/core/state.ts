@@ -98,7 +98,10 @@ export const SOFT_THRESHOLD = 0.5;
 // Minimum pressure before sleep is physiologically possible. Below this,
 // the agent's body simply hasn't accumulated enough adenosine to sleep.
 // Like a human who can't nap 30 minutes after waking up.
-export const MIN_SLEEP_THRESHOLD = 0.3;
+// Minimum requires BOTH homeostatic > 0 AND combined >= threshold.
+// This prevents sleeping immediately after waking (homeostatic=0).
+export const MIN_SLEEP_THRESHOLD = 0.2;
+export const MIN_HOMEOSTATIC_FOR_SLEEP = 0.05; // ~48 min agent-time minimum awake
 
 export type SleepPressure = {
   homeostatic: number; // 0..1, time-since-last-sleep

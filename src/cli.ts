@@ -346,6 +346,8 @@ async function live(): Promise<void> {
     running = false;
   });
 
+  let consecutiveRests = 0;
+
   while (running) {
     const state = await loadState();
 
@@ -392,10 +394,23 @@ async function live(): Promise<void> {
       // Cooldown after rest: if the agent rested without doing anything
       // meaningful (0 tool calls or reason=rested), wait before restarting
       // to prevent a tight spin loop that burns API quota.
-      if (result.reason === "rested") {
-        const cooldownMs = result.toolCalls === 0 ? 60_000 : 10_000;
-        console.log(`[live] rested — cooling down ${cooldownMs / 1000}s`);
-        await sleep(cooldownMs);
+      if (result.reason === "rested" && result.toolCalls === 0) {
+        // Only count truly idle rests (no tool calls at all).
+        consecutiveRests += 1;
+        console.log(`[live] idle rest — cooling down 60s (${consecutiveRests} consecutive)`);
+        if (consecutiveRests >= 3) {
+          console.log("[live] session stale — clearing for fresh start");
+          const { clearSession } = await import("./core/session-store.js");
+          await clearSession();
+          consecutiveRests = 0;
+        }
+        await sleep(60_000);
+      } else if (result.reason === "rested") {
+        consecutiveRests = 0;
+        console.log("[live] rested — cooling down 10s");
+        await sleep(10_000);
+      } else {
+        consecutiveRests = 0;
       }
 
       // Round-6 P1 fix: after molt_swap, we need to stop the container

@@ -44,6 +44,7 @@ import { think, type Message, type ThinkEventSink } from "../llm/client.js";
 import {
   calculateSleepPressure,
   FORCE_THRESHOLD,
+  MIN_HOMEOSTATIC_FOR_SLEEP,
   MIN_SLEEP_THRESHOLD,
   loadState,
   saveState,
@@ -55,7 +56,7 @@ import {
 } from "./state.js";
 import { readToday, readYesterday } from "../memory/journal.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
-import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
+import { toolsForMode, toolDefs, dispatchTool, resetActivatedTools, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
 import { resetTrace, saveTrace, startSpan, endSpan } from "./trace.js";
 import { enqueueFailed } from "./dead-letter.js";
@@ -140,8 +141,9 @@ export async function runCycle(options?: {
     // logging must never crash the cycle
   }
 
-  // Reset trace for this cycle and start the root span.
+  // Reset per-cycle state.
   resetTrace();
+  resetActivatedTools();
   const cycleSpan = startSpan("cycle");
 
   // Tick the sleep clock first. This adds the wall-clock time elapsed since
@@ -385,8 +387,9 @@ export async function runCycle(options?: {
     }
   }
   // Core tools first (agent's primary surface), extensions after.
-  const tools: Tool[] = [...coreTools, ...extensionTools];
-  const defs = toolDefs(tools);
+  // These are rebuilt each turn to pick up newly activated tools via more_tools.
+  let tools: Tool[] = [...coreTools, ...extensionTools];
+  let defs = toolDefs(tools);
 
   // Reset compaction state so incremental summaries don't carry over
   // from a previous cycle.
@@ -579,6 +582,20 @@ export async function runCycle(options?: {
     messages.push(toolResultMsg);
     await appendMessage(toolResultMsg);
 
+    // Rebuild tool list if more_tools activated something new this turn.
+    const refreshedTools = await toolsForMode(state.mode);
+    const refreshedExt: Tool[] = [];
+    for (const ext of extensions) {
+      for (const tool of ext.tools) {
+        if (!tool.states || tool.states.length === 0 || tool.states.includes(state.mode)) {
+          if (tool.available) { try { if (!(await tool.available())) continue; } catch { continue; } }
+          refreshedExt.push(tool);
+        }
+      }
+    }
+    tools = [...refreshedTools, ...refreshedExt];
+    defs = toolDefs(tools);
+
     // Auto-compact: if the conversation has grown long, summarize the older
     // half so we can continue without blowing the context. Cheap LLM call.
     try {
@@ -613,20 +630,29 @@ export async function runCycle(options?: {
         // We tick it now so the sleep gate uses real elapsed time.
         state = tickAwake(state);
         const freshPressure = calculateSleepPressure(state);
-        if (freshPressure.combined < MIN_SLEEP_THRESHOLD) {
-          // Reject the transition — inject as a plain user message (NOT tool_result,
-          // which would require a matching tool_use_id from the prior assistant turn).
+        if (freshPressure.combined < MIN_SLEEP_THRESHOLD || freshPressure.homeostatic < MIN_HOMEOSTATIC_FOR_SLEEP) {
+          // Sleep rejected — summon the questioner to push the agent forward
+          // instead of a dead system message. The questioner knows the agent
+          // and can challenge it to do something it hasn't tried yet.
+          let questionerResponse = "";
+          try {
+            const { summonSubAgent } = await import("./subagent-loader.js");
+            const result = await summonSubAgent({
+              name: "questioner",
+              message: `The agent tried to sleep but the body refused (pressure ${freshPressure.combined.toFixed(2)}). What hasn't the agent done yet? What is it avoiding? Push toward action, not more reflection.`,
+              contextFromParent: `Agent: ${state.seedName}. State: ${state.mode}, day ${state.sleepCount}, moment ${state.totalTurns}. Sleep pressure: ${freshPressure.combined.toFixed(2)} (needs ${MIN_SLEEP_THRESHOLD}).`,
+            });
+            questionerResponse = `\n\n[questioner]: ${result.response}`;
+          } catch {
+            // questioner unavailable — fall back to simple message
+          }
+
           const rejectMsg: Message = {
             role: "user",
-            content: `[sleep rejected] Your body is not tired enough to sleep yet. Sleep pressure is ${freshPressure.combined.toFixed(2)} (${freshPressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required.${
-              state.mode === "REFLECT"
-                ? " You have finished reflecting but cannot sleep yet. Transition to WAKE — there is more living to do before the body is ready for sleep."
-                : " Stay awake and keep thinking — sleep will come when you need it."
-            }`,
+            content: `[sleep rejected] Pressure ${freshPressure.combined.toFixed(2)}, need ${MIN_SLEEP_THRESHOLD.toFixed(2)}.${questionerResponse || " You cannot sleep yet. Do something you haven't tried."}`,
           };
           messages.push(rejectMsg);
           await appendMessage(rejectMsg);
-          // Don't break — continue the turn loop.
           continue;
         }
       }

@@ -203,16 +203,38 @@ export async function searchSessions(
   return results;
 }
 
-// #5: Ranked multi-word session search.
+// #5: Ranked multi-word session search — searches by individual terms, not full phrase.
 export async function searchSessionsRanked(query: string, limit = 20): Promise<Array<{ file: string; preview: string; score: number }>> {
   const words = query.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
   if (words.length === 0) return [];
-  const basic = await searchSessions(query);
-  return basic.map(r => {
-    const lower = r.preview.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...r, score };
-  }).sort((a, b) => b.score - a.score).slice(0, limit);
+
+  const results: Array<{ file: string; preview: string; score: number }> = [];
+  try {
+    const files = await readdir(SESSION_ARCHIVE_DIR);
+    const jsonlFiles = files.filter(f => f.endsWith(".jsonl")).sort().reverse();
+    for (const file of jsonlFiles) {
+      try {
+        const content = await readFile(join(SESSION_ARCHIVE_DIR, file), "utf-8");
+        const lower = content.toLowerCase();
+        const score = words.filter(w => lower.includes(w)).length;
+        if (score === 0) continue;
+        // Find best matching line for preview
+        const lines = content.split("\n");
+        let bestLine = "";
+        let bestLineScore = 0;
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ll = line.toLowerCase();
+          const ls = words.filter(w => ll.includes(w)).length;
+          if (ls > bestLineScore) { bestLineScore = ls; bestLine = line; }
+        }
+        const preview = bestLine.length > 150 ? bestLine.slice(0, 150) + "..." : bestLine;
+        results.push({ file, preview, score });
+      } catch { /* skip */ }
+      if (results.length >= limit) break;
+    }
+  } catch { /* archive may not exist */ }
+  return results.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 // #11: Session checkpoints.
@@ -240,8 +262,13 @@ export async function listCheckpoints(): Promise<Array<{ id: string; messageCoun
 export async function rewindToCheckpoint(id: string): Promise<boolean> {
   try {
     await copyFile(join(SESSION_CHECKPOINT_DIR, `${id}.jsonl`), SESSION_FILE);
+    // Clean up later checkpoints.
     const files = (await readdir(SESSION_CHECKPOINT_DIR)).filter(f => f.endsWith(".jsonl")).sort();
     for (const f of files) { if (f > `${id}.jsonl`) await rm(join(SESSION_CHECKPOINT_DIR, f)); }
+    // Reset session meta to match the checkpoint state.
+    const text = await readFile(join(SESSION_CHECKPOINT_DIR, `${id}.jsonl`), "utf-8");
+    const msgCount = text.split("\n").filter(l => l.trim()).length;
+    await saveSessionMeta({ startedAt: id.replace(/-/g, ":").slice(0, 19), mode: "WAKE", turnCount: msgCount });
     return true;
   } catch { return false; }
 }

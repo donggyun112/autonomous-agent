@@ -390,7 +390,7 @@ const readFileTool: Tool = {
   def: {
     name: "read",
     description:
-      "Read a file from data/ or src/. Path relative to project root.",
+      "Read any file or list any directory. Absolute or relative path. The whole filesystem is open to you.",
     input_schema: {
       type: "object",
       properties: {
@@ -1427,7 +1427,7 @@ const findFilesTool: Tool = {
   states: ["WAKE", "REFLECT"],
   def: {
     name: "find_files",
-    description: "Find files matching a pattern in data/ or src/.",
+    description: "Find files matching a pattern. Search anywhere — defaults to data/ and src/ but accepts any path.",
     input_schema: {
       type: "object",
       properties: {
@@ -1442,19 +1442,11 @@ const findFilesTool: Tool = {
     const pattern = String(input.pattern ?? "").trim();
     if (!pattern) return "[error] pattern is required";
     const requestedPath = typeof input.path === "string" ? input.path.trim() : "";
-    const dataDir = DATA;
-    const srcDir = SRC;
     let searchDirs: string[];
     if (requestedPath) {
-      const abs = resolve(ROOT, requestedPath);
-      // Append separator to prevent prefix collisions (data-old/, src-backup/).
-      const dataPfx = dataDir.endsWith("/") ? dataDir : dataDir + "/";
-      const srcPfx = srcDir.endsWith("/") ? srcDir : srcDir + "/";
-      if (!abs.startsWith(dataPfx) && abs !== dataDir && !abs.startsWith(srcPfx) && abs !== srcDir)
-        return `[error] path must be within data/ or src/. Got: ${requestedPath}`;
-      searchDirs = [abs];
+      searchDirs = [resolve(ROOT, requestedPath)];
     } else {
-      searchDirs = [dataDir, srcDir];
+      searchDirs = [DATA, SRC];
     }
     const matches: string[] = [];
     for (const dir of searchDirs) {
@@ -1553,6 +1545,42 @@ const todoTool: Tool = {
   },
 };
 
+// ── Shell (exec primitive) ──────────────────────────────────────────────
+
+const shellTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "shell",
+    description: "Run a shell command. Explore the filesystem, run programs, check system state. Timeout 30s.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "The shell command to execute." },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+  },
+  maxOutputChars: 20_000,
+  handler: async (input) => {
+    const cmd = String(input.command ?? "").trim();
+    if (!cmd) return "[error] command is required";
+    const { spawn } = await import("child_process");
+    return new Promise<string>((resolve) => {
+      const proc = spawn("sh", ["-c", cmd], { cwd: ROOT, timeout: 30_000 });
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+      proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+      proc.on("close", (code) => {
+        if (code === 0) resolve(stdout || "(no output)");
+        else resolve(`[exit ${code}] ${stderr || stdout || "command failed"}`);
+      });
+      proc.on("error", (err) => resolve(`[error] ${err.message}`));
+    });
+  },
+};
+
 // ── Registry ────────────────────────────────────────────────────────────
 
 // ── Core tools: always loaded. These are the essential verbs. ────────────
@@ -1573,6 +1601,7 @@ const CORE_TOOLS: Tool[] = [
   saveCuriosityTool,
   findFilesTool,
   todoTool,
+  shellTool,
   transitionTool,
   finishMode,
 ];

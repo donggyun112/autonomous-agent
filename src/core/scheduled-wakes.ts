@@ -12,6 +12,11 @@ import { DATA } from "../primitives/paths.js";
 
 const WAKES_FILE = join(DATA, "scheduled-wakes.json");
 
+// #27: Conditional wake types — a wake can require a condition beyond time.
+export type WakeCondition =
+  | { type: "inbox_reply" }
+  | { type: "wiki_count_exceeds"; threshold: number };
+
 export type ScheduledWake = {
   id: string;
   // When to wake (epoch ms). Daemon fires when Date.now() >= wakeAt.
@@ -26,6 +31,10 @@ export type ScheduledWake = {
   intervalMs?: number;
   // When this was registered.
   registeredAt: string;
+  // #27: Optional condition that must also be met (in addition to time).
+  condition?: WakeCondition;
+  // #28: Priority for tie-breaking when multiple wakes are due. Higher = more important. Default 0.
+  priority?: number;
 };
 
 async function loadWakes(): Promise<ScheduledWake[]> {
@@ -67,15 +76,53 @@ export async function listWakes(): Promise<ScheduledWake[]> {
   return loadWakes();
 }
 
-// Called by the daemon. Returns the first due wake (if any), advances or
-// removes it, and returns the intention+context for system prompt injection.
+// #27: Check whether a wake's condition is met. If no condition, always met.
+async function isConditionMet(condition?: WakeCondition): Promise<boolean> {
+  if (!condition) return true;
+  try {
+    if (condition.type === "inbox_reply") {
+      const { unreadInboxCount } = await import("./conversation.js");
+      return (await unreadInboxCount()) > 0;
+    }
+    if (condition.type === "wiki_count_exceeds") {
+      const { listPages } = await import("./wiki.js");
+      const pages = await listPages();
+      return pages.length > condition.threshold;
+    }
+  } catch {
+    // If the condition check itself fails, treat as unmet (don't fire).
+    return false;
+  }
+  return true;
+}
+
+// Called by the daemon. Returns the highest-priority due wake (if any),
+// advances or removes it, and returns the intention+context for system
+// prompt injection.
+// #27: Also checks conditions. #28: Sorts by priority (descending).
 export async function popDueWake(): Promise<ScheduledWake | null> {
   const wakes = await loadWakes();
   const now = Date.now();
-  const dueIdx = wakes.findIndex((w) => now >= w.wakeAt);
-  if (dueIdx === -1) return null;
 
-  const due = wakes[dueIdx];
+  // Collect all time-due wakes, then check conditions.
+  const timeDue = wakes.filter((w) => now >= w.wakeAt);
+  if (timeDue.length === 0) return null;
+
+  // #28: Sort by priority descending (higher = more important).
+  timeDue.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+  // #27: Find the first time-due wake whose condition is also met.
+  let due: ScheduledWake | null = null;
+  for (const candidate of timeDue) {
+    if (await isConditionMet(candidate.condition)) {
+      due = candidate;
+      break;
+    }
+  }
+  if (!due) return null;
+
+  const dueIdx = wakes.findIndex((w) => w.id === due!.id);
+  if (dueIdx === -1) return due; // data corruption guard — return but don't mutate
   if (due.oneShot) {
     wakes.splice(dueIdx, 1);
   } else if (due.intervalMs) {

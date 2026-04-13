@@ -28,9 +28,12 @@
 //   every_n_cycles — fires every N total cycles
 //   always         — fires every time the mode matches
 
-import { readdir, readFile, stat } from "fs/promises";
-import { join } from "path";
-import { SRC } from "../primitives/paths.js";
+import { appendFile, mkdir, readdir, readFile, stat } from "fs/promises";
+import { dirname, join } from "path";
+import { DATA, SRC } from "../primitives/paths.js";
+import { readRecent } from "../memory/journal.js";
+
+const RITUAL_LOG = join(DATA, "ritual-log.jsonl");
 
 const RITUALS_DIR = join(SRC, "extensions", "rituals");
 
@@ -46,6 +49,9 @@ export type RitualDef = {
   mode: "WAKE" | "REFLECT" | "SLEEP";
   body: string;  // the instruction text, injected as a prompt section
   file: string;
+  // If set, auto-recall N days of journal entries and inject alongside the
+  // ritual instructions. Gives rituals actual data to work with, not just text.
+  autoRecallDays?: number;
 };
 
 function parseSchedule(fields: Record<string, string>): RitualSchedule | null {
@@ -94,6 +100,9 @@ export async function listRituals(): Promise<RitualDef[]> {
       const schedule = parseSchedule(fields);
       if (!schedule) continue;
       const mode = (fields.mode ?? "REFLECT").toUpperCase() as RitualDef["mode"];
+      const autoRecallDays = fields.auto_recall_days
+        ? parseInt(fields.auto_recall_days, 10)
+        : undefined;
       defs.push({
         name: fields.name,
         description: fields.description ?? "",
@@ -101,6 +110,7 @@ export async function listRituals(): Promise<RitualDef[]> {
         mode,
         body,
         file: full,
+        autoRecallDays: autoRecallDays && autoRecallDays > 0 ? autoRecallDays : undefined,
       });
     } catch {
       // skip broken files
@@ -131,7 +141,27 @@ export function dueRituals(args: {
   });
 }
 
+// Log a ritual fire to data/ritual-log.jsonl for tracking accountability.
+async function logRitualFire(ritual: RitualDef, cycle: number, sleepCount: number): Promise<void> {
+  try {
+    await mkdir(dirname(RITUAL_LOG), { recursive: true });
+    const entry = JSON.stringify({
+      ts: new Date().toISOString(),
+      name: ritual.name,
+      cycle,
+      sleepCount,
+      mode: ritual.mode,
+      schedule: ritual.schedule,
+    });
+    await appendFile(RITUAL_LOG, entry + "\n", "utf-8");
+  } catch {
+    // logging failure should never crash the cycle
+  }
+}
+
 // Build a prompt block from due rituals for injection into the system prompt.
+// When a ritual has auto_recall_days, the journal content is fetched and
+// injected alongside the instructions — giving rituals actual data to act on.
 export async function buildRitualBlock(args: {
   currentMode: string;
   sleepCount: number;
@@ -141,12 +171,37 @@ export async function buildRitualBlock(args: {
   const due = dueRituals({ rituals, ...args });
   if (due.length === 0) return "";
 
-  const blocks = due.map((r) => [
-    `### ritual: ${r.name}`,
-    r.description ? `_${r.description}_` : "",
-    "",
-    r.body,
-  ].filter(Boolean).join("\n"));
+  const blocks: string[] = [];
+  for (const r of due) {
+    // Log fire for accountability tracking.
+    await logRitualFire(r, args.cycle, args.sleepCount);
+
+    const parts = [
+      `### ritual: ${r.name}`,
+      r.description ? `_${r.description}_` : "",
+      "",
+      r.body,
+    ];
+
+    // Auto-recall: fetch journal entries and inject as context.
+    if (r.autoRecallDays && r.autoRecallDays > 0) {
+      try {
+        const journal = await readRecent(r.autoRecallDays);
+        if (journal) {
+          parts.push(
+            "",
+            `#### auto-recalled journal (last ${r.autoRecallDays} days)`,
+            "",
+            journal.length > 3000 ? journal.slice(0, 3000) + "\n…(truncated)" : journal,
+          );
+        }
+      } catch {
+        // journal read failure should not block ritual
+      }
+    }
+
+    blocks.push(parts.filter(Boolean).join("\n"));
+  }
 
   return [
     "---",

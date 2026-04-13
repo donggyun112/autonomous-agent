@@ -589,7 +589,7 @@ async function checkToolRegistry(): Promise<CheckResult> {
   try {
     const { toolsForMode } = await import("./tools.js");
     for (const mode of ["WAKE", "REFLECT", "SLEEP"] as const) {
-      const tools = toolsForMode(mode);
+      const tools = await toolsForMode(mode);
       for (const t of tools) {
         if (!t.def?.name || typeof t.def.name !== "string") {
           throw new Error(`tool missing name: ${JSON.stringify(t.def)}`);
@@ -798,4 +798,117 @@ export async function runMockCycleTest(): Promise<void> {
     throw new Error("runMockCycleTest: runCycle returned no state");
   }
   // Success — exit 0
+}
+
+// ── #22: Auto-rollback after consecutive post-molt failures ──────────────
+
+const FAILURE_COUNT_FILE = join(MOLT_DIR, "failure-count.json");
+
+type FailureCount = {
+  count: number;
+  since: string; // ISO timestamp of first failure
+};
+
+/** Read the current consecutive-failure count (0 if no file). */
+export async function readMoltFailureCount(): Promise<number> {
+  try {
+    const text = await readFile(FAILURE_COUNT_FILE, "utf-8");
+    const data = JSON.parse(text) as FailureCount;
+    return data.count;
+  } catch {
+    return 0;
+  }
+}
+
+/** Increment the consecutive-failure counter. Returns the new count. */
+export async function incrementMoltFailureCount(): Promise<number> {
+  let data: FailureCount;
+  try {
+    const text = await readFile(FAILURE_COUNT_FILE, "utf-8");
+    data = JSON.parse(text) as FailureCount;
+    data.count += 1;
+  } catch {
+    data = { count: 1, since: new Date().toISOString() };
+  }
+  await mkdir(MOLT_DIR, { recursive: true });
+  await writeFile(FAILURE_COUNT_FILE, JSON.stringify(data, null, 2), "utf-8");
+  return data.count;
+}
+
+/** Reset the failure counter (called on a successful cycle). */
+export async function resetMoltFailureCount(): Promise<void> {
+  try {
+    await rm(FAILURE_COUNT_FILE);
+  } catch {
+    // ok — file may not exist
+  }
+}
+
+/**
+ * Find the most recent previous image tag (autonomous-agent:previous-*).
+ * Returns null if none found.
+ */
+async function findPreviousImageTag(): Promise<string | null> {
+  if (!isDockerAvailable()) return null;
+  try {
+    const result = await spawnSupervised({
+      cmd: "docker",
+      cmdArgs: ["images", "--format", "{{.Repository}}:{{.Tag}}", "autonomous-agent"],
+      overallTimeoutMs: 10_000,
+    }).wait();
+    if (result.exitCode !== 0) return null;
+    const tags = result.stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((t) => t.startsWith("autonomous-agent:previous-"));
+    if (tags.length === 0) return null;
+    // Sort lexicographically — the ISO-ish timestamp suffix means latest is last.
+    tags.sort();
+    return tags[tags.length - 1];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Roll back to the previous Docker image. Tags the previous image as
+ * :current and writes a swap-pending marker so the daemon can exit and
+ * let the host recreate the container.
+ *
+ * Returns null if no previous image is available.
+ */
+export async function rollbackMolt(reason: string): Promise<SwapResult | null> {
+  const prevTag = await findPreviousImageTag();
+  if (!prevTag) return null;
+
+  // Tag previous → current
+  const tagResult = await spawnSupervised({
+    cmd: "docker",
+    cmdArgs: ["tag", prevTag, CURRENT_TAG],
+    overallTimeoutMs: 10_000,
+  }).wait();
+  if (tagResult.exitCode !== 0) {
+    throw new Error(`rollbackMolt: failed to tag ${prevTag} as ${CURRENT_TAG}: ${tagResult.stderr}`);
+  }
+
+  // Write swap-pending marker so the daemon knows to exit.
+  await mkdir(MOLT_DIR, { recursive: true });
+  const pending: SwapPending = {
+    generationId: `rollback-${Date.now().toString(36)}`,
+    imageTag: prevTag,
+    previousTag: CURRENT_TAG,
+    declaredAt: new Date().toISOString(),
+    reason: `auto-rollback: ${reason}`,
+  };
+  await writeFile(SWAP_PENDING, JSON.stringify(pending, null, 2), "utf-8");
+
+  // Reset the failure counter so we don't loop.
+  await resetMoltFailureCount();
+
+  return {
+    ok: true,
+    previousTag: CURRENT_TAG,
+    newTag: prevTag,
+    generationId: pending.generationId,
+  };
 }

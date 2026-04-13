@@ -40,10 +40,22 @@ export const SRC = join(ROOT, "src");
 // DATA is the body — agent's long-term state. Separately overridable from ROOT
 // so that a molted shell running from a different codebase can still point at
 // the parent's body.
-export const DATA =
-  process.env.AGENT_DATA_DIR && isAbsolute(process.env.AGENT_DATA_DIR)
-    ? process.env.AGENT_DATA_DIR
-    : join(ROOT, "data");
+//
+// Profile support: setting AGENT_PROFILE=<name> uses data/<name>/ instead of
+// data/. This lets the user run multiple independent agent identities from the
+// same codebase. No profile = current behavior (data/).
+function resolveDataDir(): string {
+  if (process.env.AGENT_DATA_DIR && isAbsolute(process.env.AGENT_DATA_DIR)) {
+    return process.env.AGENT_DATA_DIR;
+  }
+  const profile = process.env.AGENT_PROFILE?.trim();
+  if (profile) {
+    return join(ROOT, "data", profile);
+  }
+  return join(ROOT, "data");
+}
+
+export const DATA = resolveDataDir();
 
 export const GENERATIONS = join(ROOT, "generations");
 

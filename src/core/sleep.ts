@@ -18,7 +18,10 @@
 //   6. reset sleep pressure
 //   7. transition to WAKE
 
-import { think } from "../llm/client.js";
+import { thinkAux } from "../llm/client.js";
+import { mkdir, writeFile } from "fs/promises";
+import { join } from "path";
+import { DATA } from "../primitives/paths.js";
 import {
   dream as dreamMemory,
   findClusters,
@@ -29,7 +32,7 @@ import {
   remember,
   shallowMemories,
 } from "../primitives/recall.js";
-import { readRecent } from "../memory/journal.js";
+import { readRecent, readToday } from "../memory/journal.js";
 import { reconstitute, revise } from "./identity.js";
 import {
   loadState,
@@ -48,6 +51,7 @@ import {
 } from "./wiki.js";
 
 export type SleepReport = {
+  memoriesIngested: number;
   dreamed: number;
   schemasFormed: number;
   associationsFound: number;
@@ -56,7 +60,9 @@ export type SleepReport = {
   wikiPagesTouched: number;
   wikiLintFindings: number;
   selfPageSynced: boolean;
+  entityPagesCreated: number;
   durationMs: number;
+  errors: Array<{ step: string; message: string }>;
 };
 
 const DREAM_BATCH_SIZE = 5;
@@ -65,7 +71,7 @@ const ASSOCIATION_TRIES = 3;
 
 // Compress a single memory's content via LLM.
 async function compressMemory(content: string): Promise<string> {
-  const result = await think({
+  const result = await thinkAux({
     systemPrompt:
       "You are the agent's sleeping mind. You are looking at a memory and rewriting it in a compressed form — shorter, less wordy, but preserving the essence. Two or three sentences is plenty. Sometimes one phrase is right. Do not add new content. Do not interpret. Just compress.",
     messages: [
@@ -94,7 +100,7 @@ async function extractSchemaAsPage(args: {
     ? `\n\nExisting wiki page on this topic (revise it, don't just restate):\n\n${args.existingPageBody}\n`
     : "";
 
-  const result = await think({
+  const result = await thinkAux({
     systemPrompt: `You are the agent's sleeping mind. You are reading a cluster of related memories the agent accumulated during waking life. Your task is to write a wiki page — a compiled, synthesized piece of the agent's self-knowledge on this theme.
 
 Format your response EXACTLY as:
@@ -135,7 +141,7 @@ async function findAssociation(args: {
   a: string;
   b: string;
 }): Promise<{ via: string } | null> {
-  const result = await think({
+  const result = await thinkAux({
     systemPrompt:
       "You are the agent's dreaming mind. You are being shown two memories that have nothing obvious in common. Your task is to look for an unexpected link between them — a theme, a feeling, a structural similarity. If a real link exists, respond with: LINK: <the link as a short noun phrase>. If there is no link worth keeping, respond with: NO_LINK.",
     messages: [
@@ -190,6 +196,7 @@ async function syncSelfPage(): Promise<boolean> {
     body,
     related: concepts.map((c) => c.slug),
     reason: "sleep: self-page sync with whoAmI + wiki themes",
+    sleepConsolidation: true,
   });
   return true;
 }
@@ -201,7 +208,7 @@ async function integrateJournal(): Promise<boolean> {
 
   const currentWhoAmI = await reconstitute();
 
-  const result = await think({
+  const result = await thinkAux({
     systemPrompt:
       "You are the agent's sleeping mind. You are looking at today's journal and the agent's current whoAmI. Your task is to write a single short paragraph (2-4 sentences) that the agent would add to its whoAmI to integrate what was learned today. The paragraph should be in the agent's first-person voice. It should NOT be a summary of the journal — it should be a piece of the agent's self-understanding that has shifted because of today. If today did not actually shift anything, respond with: NO_SHIFT.",
     messages: [
@@ -229,6 +236,7 @@ async function integrateJournal(): Promise<boolean> {
 export async function runSleepConsolidation(): Promise<SleepReport> {
   const startedAt = Date.now();
   const report: SleepReport = {
+    memoriesIngested: 0,
     dreamed: 0,
     schemasFormed: 0,
     associationsFound: 0,
@@ -237,14 +245,43 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     wikiPagesTouched: 0,
     wikiLintFindings: 0,
     selfPageSynced: false,
+    entityPagesCreated: 0,
     durationMs: 0,
+    errors: [],
   };
 
   // Ensure wiki directory exists before SLEEP operations touch it.
   try {
     await ensureWikiInitialized();
-  } catch {
-    // ok — sleep proceeds even if wiki setup fails
+  } catch (err) {
+    report.errors.push({ step: "wiki-init", message: (err as Error).message });
+  }
+
+  // 0. Ingest today's journal entries into the memory graph.
+  // During WAKE/REFLECT the agent only writes to journal files (cheap, fast).
+  // Here we batch-process them into the memory graph — like how biological
+  // memories are consolidated during sleep, not during waking experience.
+  try {
+    const { extractKeys } = await import("../memory/keys.js");
+    const todayText = await readToday();
+    if (todayText) {
+      // Split by entry headers (## HH:MM:SS lines) to get individual thoughts.
+      const entries = todayText.split(/\n(?=## \d{2}:\d{2})/).filter((e) => e.trim());
+      for (const entry of entries) {
+        const text = entry.replace(/^## \d{2}:\d{2}[:\d]*\s*\n/, "").trim();
+        if (!text || text.length < 10) continue;
+        const keys = extractKeys(text);
+        if (keys.length === 0) keys.push("thought");
+        try {
+          await remember(text, keys);
+          report.memoriesIngested += 1;
+        } catch {
+          // skip individual failures
+        }
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "journal-ingest", message: (err as Error).message });
   }
 
   // 1. Dream over shallow memories.
@@ -257,12 +294,12 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
           await dreamMemory({ memoryId: mem.id, compressedContent: compressed });
           report.dreamed += 1;
         }
-      } catch {
-        // skip individual failures
+      } catch (err) {
+        report.errors.push({ step: "dream-memory", message: (err as Error).message });
       }
     }
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "dream", message: (err as Error).message });
   }
 
   // 2. Cluster schemas → wiki pages.
@@ -314,15 +351,61 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
           sources: mergedSources.length > 0 ? mergedSources : undefined,
           related: related.length > 0 ? related : undefined,
           reason: existing ? "sleep: revised from new cluster" : "sleep: created from cluster",
+          sleepConsolidation: true,
         });
         report.schemasFormed += 1;
         report.wikiPagesTouched += 1;
-      } catch {
-        // skip
+      } catch (err) {
+        report.errors.push({ step: "cluster-schema", message: (err as Error).message });
       }
     }
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "cluster", message: (err as Error).message });
+  }
+
+  // 2b. Entity page auto-generation. Scan today's journal for capitalized
+  // proper nouns (words starting with uppercase that aren't sentence starters,
+  // appearing 2+ times). For each, check if an entity wiki page exists.
+  // If not, create a stub entity page.
+  try {
+    const todayText = await readToday();
+    if (todayText) {
+      // Find capitalized words that aren't sentence starters.
+      // We look for words preceded by a non-sentence-boundary character
+      // (i.e., not at the very start or after . ! ? newline).
+      const properNounMatches = todayText.match(
+        /(?<=[a-z,;:]\s)[A-Z][a-z]{2,}/g,
+      ) ?? [];
+      // Count occurrences
+      const counts = new Map<string, number>();
+      for (const word of properNounMatches) {
+        counts.set(word, (counts.get(word) ?? 0) + 1);
+      }
+      // Filter to those appearing 2+ times
+      const candidates = [...counts.entries()]
+        .filter(([, count]) => count >= 2)
+        .map(([word]) => word);
+
+      for (const name of candidates) {
+        const entitySlug = slugify(name);
+        if (!entitySlug) continue;
+        const existing = await readPage("entity", entitySlug);
+        if (existing) continue; // already exists
+
+        await writePage({
+          kind: "entity",
+          slug: entitySlug,
+          title: name,
+          body: `Stub page for entity "${name}". Mentioned ${counts.get(name)} times in today's journal. This page will be enriched as more is learned.`,
+          reason: "sleep: auto-generated entity stub from journal proper nouns",
+          sleepConsolidation: true,
+        });
+        report.entityPagesCreated += 1;
+        report.wikiPagesTouched += 1;
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "entity-auto-gen", message: (err as Error).message });
   }
 
   // 3. REM creative association.
@@ -336,27 +419,27 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
           await linkMemories(pair.a.id, pair.b.id, link.via);
           report.associationsFound += 1;
         }
-      } catch {
-        // skip
+      } catch (err) {
+        report.errors.push({ step: "rem-association", message: (err as Error).message });
       }
     }
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "rem", message: (err as Error).message });
   }
 
   // 4. Prune weak memories.
   try {
     const pruned = await pruneWeak({ maxToPrune: 30 });
     report.pruned = pruned.length;
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "prune", message: (err as Error).message });
   }
 
   // 5. Integrate journal into whoAmI.
   try {
     report.whoAmIUpdated = await integrateJournal();
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "integrate-journal", message: (err as Error).message });
   }
 
   // 5b. Sync wiki/self.md with the (possibly just-updated) whoAmI and
@@ -364,15 +447,15 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   // so the self page reflects the freshest view.
   try {
     report.selfPageSynced = await syncSelfPage();
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "sync-self-page", message: (err as Error).message });
   }
 
   // 5c. Rebuild wiki index (cheap, keeps the catalog current).
   try {
     await rebuildIndex();
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "rebuild-index", message: (err as Error).message });
   }
 
   // 5d. Lint the wiki. Findings are logged; the agent can read the wiki
@@ -380,8 +463,30 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   try {
     const lint = await lintWiki();
     report.wikiLintFindings = lint.findings.length;
-  } catch {
-    // ok
+  } catch (err) {
+    report.errors.push({ step: "wiki-lint", message: (err as Error).message });
+  }
+
+  // 5e. Generate a natural-language narrative summary of this sleep cycle.
+  // The narrative is saved to data/last-sleep-narrative.md so the agent can
+  // read "what happened while I slept" on next WAKE.
+  try {
+    const narrativeResult = await thinkAux({
+      systemPrompt:
+        "You are the agent's dreaming mind, just finishing a sleep cycle. Write a brief first-person narrative (3-8 sentences) describing what happened during this sleep: how many memories were dreamed, any schemas or associations formed, whether the wiki grew, whether identity shifted. Write it as a dream journal entry — poetic but factual. Do not use bullet points. Just flowing prose.",
+      messages: [
+        {
+          role: "user",
+          content: `Sleep consolidation just completed. Here is the report:\n\n${JSON.stringify(report, null, 2)}\n\nWrite a brief narrative of this sleep.`,
+        },
+      ],
+      maxTokens: 512,
+    });
+    const narrativePath = join(DATA, "last-sleep-narrative.md");
+    await mkdir(DATA, { recursive: true });
+    await writeFile(narrativePath, narrativeResult.text.trim() + "\n", "utf-8");
+  } catch (err) {
+    report.errors.push({ step: "sleep-narrative", message: (err as Error).message });
   }
 
   // 6. Reset sleep pressure + 7. transition to WAKE.

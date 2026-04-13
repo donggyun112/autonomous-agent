@@ -9,14 +9,34 @@
 // The light-molt tool (manage_self) cannot reach this file. This is intentional.
 // ===========================================================================
 //
-// One cycle of the agent's life.
+// ── Glossary (metaphor → technical mapping) ─────────────────────────────
 //
-// A cycle is a single turn-loop in the current mode. The agent calls tools,
-// the runner dispatches them, results are fed back, and the loop continues
-// until the agent calls `transition` or `rest`, or until a turn budget is hit.
+//   cycle      — one continuous LLM turn-loop. WAKE/REFLECT run indefinitely
+//                until the agent transitions or rests. SLEEP is system-driven.
+//   molt       — self-modification via Docker image rebuild + test + swap.
+//                "light molt" = add files to extensions/. "full molt" = new image.
+//   dream      — memory compression. raw text → shorter summary. depth increases.
+//                Happens automatically during SLEEP consolidation.
+//   ritual     — periodic practice defined as .md in extensions/rituals/.
+//                Fires based on cycle/sleep count; injected into system prompt.
+//   whoAmI     — data/whoAmI.md. The agent's current self-narrative. Read at
+//                every wake; revised only during REFLECT.
+//   body       — data/ directory. Persistent identity: journal, memory, whoAmI.
+//   shell      — src/ directory. Replaceable code. Can be swapped via molt.
+//   wiki       — data/wiki/. LLM-compiled knowledge base (Karpathy pattern).
+//                raw journal → compiled pages → schema for prompts.
+//   sleep pressure — Borbely two-process model. homeostatic (time awake) +
+//                circadian (time of day). Forces sleep at 1.0, blocks it below 0.3.
+//   transition — state change: WAKE ↔ REFLECT ↔ SLEEP. Agent-initiated except
+//                forced sleep.
+//   sub-agent  — inner voice. .md in extensions/subagents/. One-shot LLM call
+//                with the parent's identity context auto-injected.
 //
-// Long-form cycles (a full WAKE → REFLECT → SLEEP arc) are composed of
-// multiple cycles invoked by the daemon (cli.ts live).
+// ────────────────────────────────────────────────────────────────────────
+//
+// The agent's life runs as a continuous stream. WAKE and REFLECT have no
+// turn limit — the agent thinks as long as it needs. Only SLEEP is a
+// system-driven consolidation phase that clears the session.
 
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -33,6 +53,7 @@ import {
   type Mode,
   type SleepPressure,
 } from "./state.js";
+import { readToday, readYesterday } from "../memory/journal.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
@@ -49,9 +70,12 @@ import {
   clearSession,
   loadSession,
   replaceSession,
+  initSessionMeta,
 } from "./session-store.js";
 import { runSleepConsolidation, type SleepReport } from "./sleep.js";
 import { SRC } from "../primitives/paths.js";
+import { logSystem } from "./system-log.js";
+import { logCycleCost } from "./action-log.js";
 
 const PROMPT_DIR = join(SRC, "llm", "prompts");
 
@@ -82,15 +106,37 @@ export type CycleObserver = {
   onToolEnd?: (name: string, result: string) => void;
   onTurnStart?: (turn: number, mode: Mode) => void;
   onTurnEnd?: (turn: number) => void;
+  // Enhanced observer events
+  onSessionRestore?: (messageCount: number) => void;
+  onCompaction?: (result: { before: number; after: number }) => void;
+  onSleepStart?: () => void;
+  onSleepEnd?: (report: SleepReport) => void;
+  onExtensionLoad?: (count: number, errors: number) => void;
 };
 
 export async function runCycle(options?: {
   maxTurns?: number;
   observer?: CycleObserver;
 }): Promise<CycleResult> {
-  const maxTurns = options?.maxTurns ?? 12;
+  // No artificial turn limit — the agent thinks continuously until it
+  // transitions or rests. The old default of 12 created false cycle
+  // boundaries. Pass maxTurns only for testing or resource caps.
+  const maxTurns = options?.maxTurns ?? Infinity;
   const observer = options?.observer;
+  const cycleStartTime = Date.now();
   let state = await loadState();
+
+  // Log cycle start.
+  try {
+    await logSystem({
+      ts: new Date().toISOString(),
+      event: "cycle_start",
+      cycle: state.cycle,
+      mode: state.mode,
+    });
+  } catch {
+    // logging must never crash the cycle
+  }
 
   // Tick the sleep clock first. This adds the wall-clock time elapsed since
   // the last cycle to awakeMs (only if the agent is currently awake/reflecting).
@@ -110,9 +156,13 @@ export async function runCycle(options?: {
   if (state.mode === "SLEEP") {
     await clearSession();
     observer?.onTurnStart?.(0, "SLEEP");
+    observer?.onSleepStart?.();
     let sleepReport: SleepReport | undefined;
     try {
       sleepReport = await runSleepConsolidation();
+      if (sleepReport) {
+        observer?.onSleepEnd?.(sleepReport);
+      }
     } catch (err) {
       observer?.onToolEnd?.("(sleep error)", (err as Error).message);
     }
@@ -146,11 +196,13 @@ export async function runCycle(options?: {
   // Step 1.5 — Load extension tools BEFORE building the system prompt, so
   // the prompt can show which extensions are currently active.
   let extensions: LoadedExtension[] = [];
+  let extensionErrors = 0;
   try {
     extensions = await loadExtensionTools();
   } catch {
-    // ok
+    extensionErrors += 1;
   }
+  observer?.onExtensionLoad?.(extensions.length, extensionErrors);
 
   // Step 1 — Build the system prompt from base + the current mode prompt.
   const base = await loadPrompt("base.md");
@@ -238,14 +290,48 @@ export async function runCycle(options?: {
     // ok
   }
 
+  // Daily log — yesterday + today journal injected so the agent knows what
+  // it was thinking recently without needing to call a tool. Char-limited.
+  // "yesterday" = day-(sleepCount-1), "today" = day-(sleepCount).
+  const MAX_DAILY_LOG_CHARS = 4000;
+  let dailyLogBlock = "";
+  try {
+    const [yesterday, today] = await Promise.all([readYesterday(), readToday()]);
+    const parts: string[] = [];
+    if (yesterday) {
+      const trimmed = yesterday.length > MAX_DAILY_LOG_CHARS / 2
+        ? "…(earlier entries truncated)\n" + yesterday.slice(-MAX_DAILY_LOG_CHARS / 2)
+        : yesterday;
+      parts.push(`### day ${state.sleepCount - 1} (yesterday)`, "", trimmed);
+    }
+    if (today) {
+      const trimmed = today.length > MAX_DAILY_LOG_CHARS / 2
+        ? "…(earlier entries truncated)\n" + today.slice(-MAX_DAILY_LOG_CHARS / 2)
+        : today;
+      parts.push(`### day ${state.sleepCount} (today)`, "", trimmed);
+    }
+    if (parts.length > 0) {
+      dailyLogBlock = ["---", "## your recent journal (auto-injected)", "", ...parts].join("\n");
+    }
+  } catch {
+    // journal read failure should not block the cycle
+  }
+
+  // Language directive — injected early so the LLM adopts it from the start.
+  const langMap: Record<string, string> = { ko: "Korean (한국어)", en: "English", ja: "Japanese (日本語)" };
+  const langName = langMap[state.language] ?? state.language;
+  const languageDirective = `You think, write, and journal in ${langName}. All your inner speech and journal entries must be in ${langName}.`;
+
   const systemPrompt = [
     base,
+    languageDirective,
     "---",
     "## who you currently believe you are",
     "",
     whoAmI,
     driftSection,
     pressureNote,
+    dailyLogBlock,
     extensionsBlock,
     wakeIntentionBlock,
     ritualBlock,
@@ -255,13 +341,16 @@ export async function runCycle(options?: {
     "",
     modePrompt,
     "---",
-    `cycle ${state.cycle} · sleep_count ${state.sleepCount} · last transition: ${state.lastTransitionReason}`,
+    `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
   ]
     .filter(Boolean)
     .join("\n\n");
 
+  // Snapshot token counts at cycle start so we can log deltas later.
+  const tokensAtStart = { input: state.tokensUsed.input, output: state.tokensUsed.output };
+
   // Step 2 — The tool set for this mode.
-  const coreTools: Tool[] = toolsForMode(state.mode);
+  const coreTools: Tool[] = await toolsForMode(state.mode);
   const extensionTools: Tool[] = [];
   for (const ext of extensions) {
     for (const tool of ext.tools) {
@@ -290,6 +379,15 @@ export async function runCycle(options?: {
     };
     messages = [opening];
     await appendMessage(opening);
+  } else {
+    observer?.onSessionRestore?.(messages.length);
+  }
+
+  // Initialize session meta for continuity tracking.
+  try {
+    await initSessionMeta(state.mode);
+  } catch {
+    // meta init failure should not block the cycle
   }
 
   let toolCallCount = 0;
@@ -308,6 +406,7 @@ export async function runCycle(options?: {
     state.tokensUsed.input += response.inputTokens;
     state.tokensUsed.output += response.outputTokens;
     state.modeTurn += 1;
+    state.totalTurns += 1;
 
     // If the response had no tool calls, fold the text into journal-as-thought
     // and consider it a quiet turn.
@@ -447,6 +546,7 @@ export async function runCycle(options?: {
           "(auto-compact)",
           { before: compacted.before, after: compacted.after, summarized: compacted.summarizedCount },
         );
+        observer?.onCompaction?.({ before: compacted.before, after: compacted.after });
       }
     } catch (err) {
       // Compact failure should not kill the cycle — the agent can keep going.
@@ -460,22 +560,24 @@ export async function runCycle(options?: {
       // Like a human who can't nap 30 minutes after waking — the body
       // hasn't accumulated enough adenosine. The agent must stay awake
       // and keep thinking until pressure rises naturally.
-      if (transitionRequested.to === "SLEEP" && pressure.combined < MIN_SLEEP_THRESHOLD) {
-        // Reject the transition — inject a tool_result telling the agent.
-        const rejectMsg: Message = {
-          role: "user",
-          content: [
-            {
-              type: "tool_result" as const,
-              tool_use_id: "sleep-rejected",
-              content: `Your body is not tired enough to sleep yet. Sleep pressure is ${pressure.combined.toFixed(2)} (${pressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required. Stay awake and keep thinking — sleep will come when you need it.`,
-            },
-          ],
-        };
-        messages.push(rejectMsg);
-        await appendMessage(rejectMsg);
-        // Don't break — continue the turn loop.
-        continue;
+      if (transitionRequested.to === "SLEEP") {
+        // Recompute pressure with LIVE wall-clock time. tickAwake only runs
+        // at cycle start, so state.awakeMs is stale within a long cycle.
+        // We tick it now so the sleep gate uses real elapsed time.
+        state = tickAwake(state);
+        const freshPressure = calculateSleepPressure(state);
+        if (freshPressure.combined < MIN_SLEEP_THRESHOLD) {
+          // Reject the transition — inject as a plain user message (NOT tool_result,
+          // which would require a matching tool_use_id from the prior assistant turn).
+          const rejectMsg: Message = {
+            role: "user",
+            content: `[sleep rejected] Your body is not tired enough to sleep yet. Sleep pressure is ${freshPressure.combined.toFixed(2)} (${freshPressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required. Stay awake and keep thinking — sleep will come when you need it.`,
+          };
+          messages.push(rejectMsg);
+          await appendMessage(rejectMsg);
+          // Don't break — continue the turn loop.
+          continue;
+        }
       }
 
       // Save wake intention + context for self-continuity across sleep.
@@ -496,5 +598,34 @@ export async function runCycle(options?: {
   }
 
   await saveState(state);
+
+  // Log cycle end.
+  try {
+    const cycleDuration = Date.now() - cycleStartTime;
+    await logSystem({
+      ts: new Date().toISOString(),
+      event: "cycle_end",
+      cycle: state.cycle,
+      mode: state.mode,
+      reason: result,
+      durationMs: cycleDuration,
+    });
+  } catch {
+    // logging must never crash the cycle
+  }
+
+  // Cost tracking per cycle.
+  try {
+    await logCycleCost({
+      ts: new Date().toISOString(),
+      cycle: state.cycle,
+      mode: state.mode,
+      inputTokens: state.tokensUsed.input - tokensAtStart.input,
+      outputTokens: state.tokensUsed.output - tokensAtStart.output,
+    });
+  } catch {
+    // cost tracking must never crash the cycle
+  }
+
   return { state, turns: state.modeTurn, reason: result, toolCalls: toolCallCount };
 }

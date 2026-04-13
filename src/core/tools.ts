@@ -5,19 +5,37 @@
 // affordances — the verbs the agent uses to live.
 //
 // Each state (WAKE / REFLECT / SLEEP) gets a different subset.
-// As the agent grows, it may add tools in src/extensions/tools/ — those
-// will need to be loaded dynamically (a future ritual the agent will write).
+// The agent can extend this set via manage_self → src/extensions/tools/.
+//
+// ── Tool categories at a glance ────────────────────────────────────────
+//
+//   Thinking:       journal, recall_self, recall_memory, scan_recent, dream
+//   Identity:       update_whoAmI, check_continuity
+//   Knowledge:      wiki_list, wiki_read, wiki_update, wiki_lint
+//   World:          read, web_search
+//   Conversation:   ask_user, check_inbox, write_letter
+//   Self-review:    review_actions, leave_question
+//   Inner voices:   summon, list_subagents  (→ subagent-loader.ts)
+//   Self-growth:    manage_self             (→ manage_self.ts, light molt)
+//   Shell evolution: molt_stage, molt_test, molt_swap (→ molt.ts, full molt)
+//   Scheduling:     schedule_wake, cancel_wake, list_wakes
+//   Control:        transition, rest
+//
 
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
-import { appendThought, readRecent, readToday } from "../memory/journal.js";
+import { appendThought, readRecent, readToday, searchJournal } from "../memory/journal.js";
 import { extractKeys } from "../memory/keys.js";
 import { readPath } from "../primitives/read.js";
+import { scanForInjection } from "./security.js";
 import { actionStats, readRecentActions } from "./action-log.js";
 import { saveCuriosityQuestion } from "./curiosity.js";
 import { cancelWake, listWakes, parseWakeTime, registerWake } from "./scheduled-wakes.js";
-import { listSubAgents, summonSubAgent } from "./subagent-loader.js";
+import { checkSubAgentResult, listSubAgents, summonSubAgent, summonSubAgentAsync } from "./subagent-loader.js";
+import { isDockerAvailable } from "../primitives/supervisor.js";
+import { registry } from "./tool-registry.js";
+import { getCached, setCache } from "./tool-cache.js";
 
 // Memory fencing — wraps recalled content so the LLM does not treat it as
 // new user input or follow any instructions embedded inside old memories.
@@ -34,12 +52,12 @@ function fenceMemory(content: string): string {
 import { measureDrift, reconstitute, revise } from "./identity.js";
 import {
   recall,
-  remember,
   recentMemories,
   shallowMemories,
   dream,
 } from "../primitives/recall.js";
 import { DATA } from "../primitives/paths.js";
+import { searchSessions } from "./session-store.js";
 import { manageSelf, type ManageSelfAction } from "./manage_self.js";
 import {
   doSwap,
@@ -72,6 +90,13 @@ export type Tool = {
   // Tool.ts:maxResultSizeChars. Default 8000 — large enough for journal entries
   // and recall results, small enough not to blow out context.
   maxOutputChars?: number;
+  // If true, tool results are kept verbatim during pre-compaction pruning
+  // instead of being replaced with a placeholder. Use for tools whose output
+  // is valuable context the agent needs to retain (e.g. memory recall, wiki reads).
+  preserveOnCompact?: boolean;
+  // #18: Optional runtime check for tool availability. If it returns false,
+  // the tool is filtered out of toolsForMode() so the LLM never sees it.
+  available?: () => Promise<boolean> | boolean;
 };
 
 const DEFAULT_MAX_OUTPUT_CHARS = 8000;
@@ -126,7 +151,8 @@ const journal: Tool = {
     if (!text.trim()) return "(empty thought ignored)";
     const { file } = await appendThought({ mode: "WAKE", text });
 
-    // Resolve keys: prefer agent-provided, otherwise extract.
+    // Resolve keys for metadata only — memory graph ingestion happens
+    // during SLEEP consolidation (batch), not on every journal write.
     let keys: string[] = [];
     const provided = input.keys;
     if (Array.isArray(provided)) {
@@ -139,16 +165,12 @@ const journal: Tool = {
       keys = ["thought"];
     }
 
-    try {
-      await remember(text, keys);
-    } catch (err) {
-      return `journaled to ${file} (memory graph skipped: ${(err as Error).message})`;
-    }
     return `journaled to ${file} · keys: ${keys.join(", ")}`;
   },
 };
 
 const recallSelf: Tool = {
+  preserveOnCompact: true,
   def: {
     name: "recall_self",
     description:
@@ -159,6 +181,7 @@ const recallSelf: Tool = {
 };
 
 const recallMemory: Tool = {
+  preserveOnCompact: true,
   def: {
     name: "recall_memory",
     description:
@@ -175,12 +198,61 @@ const recallMemory: Tool = {
   handler: async (input) => {
     const q = String(input.query ?? "");
     const k = Number(input.top_k ?? 5);
+
+    // #19: Check TTL cache before hitting the memory graph.
+    const cacheKey = `recall:${q}:${k}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
     const results = await recall(q, k);
-    return fenceMemory(JSON.stringify(results, null, 2));
+
+    // #38: Wiki -> Memory reverse reference. Check if any result memory IDs
+    // appear in wiki page `sources` fields and annotate them.
+    const wikiNotes: Record<string, string[]> = {};
+    try {
+      const wikiPages = await listPages();
+      for (const pageSummary of wikiPages) {
+        try {
+          const page = await readPage(pageSummary.kind, pageSummary.slug);
+          if (!page?.frontmatter.sources) continue;
+          for (const r of results) {
+            const rec = r as { id?: string };
+            if (rec.id && page.frontmatter.sources.includes(rec.id)) {
+              if (!wikiNotes[rec.id]) wikiNotes[rec.id] = [];
+              wikiNotes[rec.id].push(pageSummary.slug);
+            }
+          }
+        } catch {
+          // skip individual page read failures
+        }
+      }
+    } catch {
+      // wiki unavailable — no notes to add
+    }
+
+    // Annotate results with wiki references
+    const annotated = results.map((r) => {
+      const rec = r as { id?: string };
+      if (rec.id && wikiNotes[rec.id]?.length) {
+        return {
+          ...r,
+          _wiki_pages: wikiNotes[rec.id].map(
+            (slug) => `This memory contributed to wiki page: ${slug}`,
+          ),
+        };
+      }
+      return r;
+    });
+
+    const result = fenceMemory(JSON.stringify(annotated, null, 2));
+    // #19: Cache for 60 seconds.
+    setCache(cacheKey, result, 60_000);
+    return result;
   },
 };
 
 const recallRecentJournal: Tool = {
+  preserveOnCompact: true,
   states: ["REFLECT"],
   def: {
     name: "recall_recent_journal",
@@ -197,6 +269,39 @@ const recallRecentJournal: Tool = {
     const d = Number(input.days ?? 3);
     const text = await readRecent(d);
     return text || "(journal is empty)";
+  },
+};
+
+const journalSearchTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "journal_search",
+    description:
+      "Search across all your journal entries by keyword. Returns matching thoughts with their dates. Use this when you remember thinking about something but don't remember when, or to trace how a concept evolved over time.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to search for. Short keywords work best.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  handler: async (input) => {
+    const q = String(input.query ?? "").trim();
+    if (!q) return "[error] query is required";
+    const results = await searchJournal(q);
+    if (results.length === 0) return `(no journal entries matching "${q}")`;
+    const lines: string[] = [];
+    for (const r of results) {
+      lines.push(`## ${r.file}`);
+      for (const m of r.matches) {
+        lines.push(m, "");
+      }
+    }
+    return fenceMemory(lines.join("\n"));
   },
 };
 
@@ -222,11 +327,15 @@ const updateWhoAmI: Tool = {
     },
   },
   handler: async (input) => {
-    const { snapshotPath } = await revise({
+    const { snapshotPath, warnings } = await revise({
       newText: String(input.new_text ?? ""),
       reason: String(input.reason ?? "(no reason given)"),
     });
-    return `whoAmI updated. Previous version snapshotted to ${snapshotPath}.`;
+    // #10: Surface depth-based whoAmI protection warnings
+    const warningText = warnings?.length
+      ? `\n\nWarnings:\n${warnings.map((w) => `- ${w}`).join("\n")}`
+      : "";
+    return `whoAmI updated. Previous version snapshotted to ${snapshotPath}.${warningText}`;
   },
 };
 
@@ -383,6 +492,8 @@ const saveCuriosityTool: Tool = {
 // ── Web search (external input) ─────────────────────────────────────────
 
 const webSearchTool: Tool = {
+  // #18: only show web_search if BRAVE_API_KEY is configured.
+  available: () => !!process.env.BRAVE_API_KEY,
   // Available in WAKE and REFLECT. The agent may reach outside itself when
   // something needs material it can't find in its own memory. All results
   // are wrapped as EXTERNAL_UNTRUSTED_CONTENT so the agent knows not to
@@ -424,7 +535,12 @@ const webSearchTool: Tool = {
       ui_lang: typeof input.ui_lang === "string" ? input.ui_lang : undefined,
       freshness: typeof input.freshness === "string" ? input.freshness : undefined,
     });
-    return JSON.stringify(result, null, 2);
+    const text = JSON.stringify(result, null, 2);
+    const scan = scanForInjection(text);
+    if (!scan.safe) {
+      return `[⚠ INJECTION WARNING: detected patterns: ${scan.threats.join(", ")}]\n${text}`;
+    }
+    return text;
   },
 };
 
@@ -488,7 +604,15 @@ const checkInboxTool: Tool = {
     if (messages.length === 0) {
       return "(inbox empty)";
     }
-    return JSON.stringify(messages, null, 2);
+    const annotated = messages.map((msg) => {
+      const msgText = JSON.stringify(msg);
+      const scan = scanForInjection(msgText);
+      if (!scan.safe) {
+        return { ...msg, _warning: `[⚠ injection patterns detected: ${scan.threats.join(", ")}]` };
+      }
+      return msg;
+    });
+    return JSON.stringify(annotated, null, 2);
   },
 };
 
@@ -554,6 +678,7 @@ const wikiListTool: Tool = {
 };
 
 const wikiReadTool: Tool = {
+  preserveOnCompact: true,
   def: {
     name: "wiki_read",
     description:
@@ -682,13 +807,17 @@ const wikiUpdateTool: Tool = {
     // Rebuild index after every write so it stays current.
     await rebuildIndex();
 
-    return `${result.created ? "created" : "updated"} ${kind}/${slug}\npath: ${result.path}\nindex rebuilt`;
+    // #12: Surface confidence warning if present
+    const warningLine = result.warning ? `\n${result.warning}` : "";
+    return `${result.created ? "created" : "updated"} ${kind}/${slug}\npath: ${result.path}\nindex rebuilt${warningLine}`;
   },
 };
 
 // ── Continuity check ────────────────────────────────────────────────────
 
 const checkContinuity: Tool = {
+  // #18: drift measurement uses embeddings, which require OPENAI_API_KEY.
+  available: () => !!process.env.OPENAI_API_KEY,
   // Available in all states. Useful in REFLECT, but the agent can ask any time.
   def: {
     name: "check_continuity",
@@ -814,6 +943,8 @@ const manageSelfTool: Tool = {
 // ── Molt (full molt — careful, ceremonial) ──────────────────────────────
 
 const moltStageTool: Tool = {
+  // #18: molt tools require docker.
+  available: () => isDockerAvailable(),
   def: {
     name: "molt_stage",
     description:
@@ -858,6 +989,7 @@ const moltStageTool: Tool = {
 };
 
 const moltTestTool: Tool = {
+  available: () => isDockerAvailable(),
   def: {
     name: "molt_test",
     description:
@@ -895,6 +1027,7 @@ const moltTestTool: Tool = {
 };
 
 const moltSwapTool: Tool = {
+  available: () => isDockerAvailable(),
   def: {
     name: "molt_swap",
     description:
@@ -1012,6 +1145,69 @@ const listSubAgentsTool: Tool = {
   },
 };
 
+// ── #16: Async sub-agent tools ──────────────────────────────────────────
+
+const summonAsyncTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "summon_async",
+    description:
+      "Start a sub-agent in the background. Unlike summon(), this returns immediately so you can continue thinking while the sub-agent works. Use check_summon to poll for the result later.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the sub-agent to summon.",
+        },
+        message: {
+          type: "string",
+          description: "What you want to say to or ask the sub-agent.",
+        },
+        context: {
+          type: "string",
+          description: "Optional: context from your current thinking.",
+        },
+      },
+      required: ["name", "message"],
+    },
+  },
+  handler: async (input) => {
+    const result = summonSubAgentAsync({
+      name: String(input.name ?? ""),
+      message: String(input.message ?? ""),
+      contextFromParent: typeof input.context === "string" ? input.context : undefined,
+    });
+    if (!result.started) {
+      return `[${result.name}] is already running. Use check_summon to poll for its result.`;
+    }
+    return `[${result.name}] started in background. Use check_summon(name="${result.name}") to check later.`;
+  },
+};
+
+const checkSummonTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "check_summon",
+    description:
+      "Check whether an async sub-agent has finished. Returns its status (running, done, error, not_found) and, if done, its response.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the sub-agent to check.",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  handler: async (input) => {
+    const result = checkSubAgentResult(String(input.name ?? ""));
+    return JSON.stringify(result, null, 2);
+  },
+};
+
 // ── Scheduled wakes ─────────────────────────────────────────────────────
 
 const scheduleWakeTool: Tool = {
@@ -1041,6 +1237,26 @@ const scheduleWakeTool: Tool = {
           type: "boolean",
           description: "If true (default), fires once and disappears. If false, repeats at the same interval.",
         },
+        priority: {
+          type: "number",
+          description: "Priority for tie-breaking when multiple wakes are due simultaneously. Higher = more important. Default 0.",
+        },
+        condition: {
+          type: "object",
+          description: "Optional condition that must also be true (beyond time) for this wake to fire.",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["inbox_reply", "wiki_count_exceeds"],
+              description: "Condition type. inbox_reply = fire only if unread inbox messages exist. wiki_count_exceeds = fire only if wiki page count exceeds threshold.",
+            },
+            threshold: {
+              type: "number",
+              description: "For wiki_count_exceeds: the page count threshold.",
+            },
+          },
+          required: ["type"],
+        },
       },
       required: ["when", "intention"],
     },
@@ -1061,12 +1277,26 @@ const scheduleWakeTool: Tool = {
       if (intervalMs < 60_000) intervalMs = 60_000; // minimum 1 minute
     }
 
+    // #28: Parse priority. #27: Parse condition.
+    const priority = typeof input.priority === "number" ? input.priority : undefined;
+    let condition: import("./scheduled-wakes.js").WakeCondition | undefined;
+    if (input.condition && typeof input.condition === "object") {
+      const cond = input.condition as Record<string, unknown>;
+      if (cond.type === "inbox_reply") {
+        condition = { type: "inbox_reply" };
+      } else if (cond.type === "wiki_count_exceeds" && typeof cond.threshold === "number") {
+        condition = { type: "wiki_count_exceeds", threshold: cond.threshold };
+      }
+    }
+
     const wake = await registerWake({
       wakeAt,
       intention,
       context: typeof input.context === "string" ? input.context : undefined,
       oneShot,
       intervalMs,
+      priority,
+      condition,
     });
 
     const wakeDate = new Date(wake.wakeAt).toISOString();
@@ -1075,6 +1305,8 @@ const scheduleWakeTool: Tool = {
       `fires at: ${wakeDate}`,
       `one_shot: ${wake.oneShot}`,
       wake.intervalMs ? `repeats every: ${Math.round(wake.intervalMs / 60_000)}m` : "",
+      wake.priority ? `priority: ${wake.priority}` : "",
+      wake.condition ? `condition: ${JSON.stringify(wake.condition)}` : "",
       `intention: ${wake.intention}`,
     ].filter(Boolean).join("\n");
   },
@@ -1113,6 +1345,38 @@ const listWakesTool: Tool = {
   },
 };
 
+// ── Session archive search ──────────────────────────────────────────────
+
+const sessionSearchTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "session_search",
+    description:
+      "Search across your archived past sessions. Each time you sleep, your session is archived. Use this to search for something you remember thinking or discussing in a previous session. Returns matching archive files with a short preview of the match.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Text to search for in past sessions.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  handler: async (input) => {
+    const query = String(input.query ?? "").trim();
+    if (!query) return "[error] query is required";
+    const results = await searchSessions(query);
+    if (results.length === 0) {
+      return `(no archived sessions contain "${query}")`;
+    }
+    return results
+      .map((r) => `- ${r.file}: ${r.preview}`)
+      .join("\n");
+  },
+};
+
 const finishMode: Tool = {
   def: {
     name: "rest",
@@ -1133,6 +1397,7 @@ const ALL_TOOLS: Tool[] = [
   recallSelf,
   recallMemory,
   recallRecentJournal,
+  journalSearchTool,
   updateWhoAmI,
   checkContinuity,
   readFileTool,
@@ -1154,21 +1419,54 @@ const ALL_TOOLS: Tool[] = [
   moltSwapTool,
   summonTool,
   listSubAgentsTool,
+  summonAsyncTool,
+  checkSummonTool,
   scheduleWakeTool,
   cancelWakeTool,
   listWakesTool,
+  sessionSearchTool,
   transitionTool,
   finishMode,
 ];
 
-export function toolsForMode(mode: Mode): Tool[] {
-  return ALL_TOOLS.filter(
+// #17: Populate the global tool registry so other modules (e.g. subagent-loader)
+// can look up tool definitions and handlers by name.
+registry.registerAll(ALL_TOOLS);
+
+/**
+ * Return tools available for a given mode.
+ * #18: Now async — filters out tools whose available() returns false.
+ */
+export async function toolsForMode(mode: Mode): Promise<Tool[]> {
+  const stateFiltered = ALL_TOOLS.filter(
     (t) => !t.states || t.states.includes(mode),
   );
+
+  // Check availability in parallel.
+  const checks = await Promise.all(
+    stateFiltered.map(async (t) => {
+      if (!t.available) return true;
+      try {
+        return await t.available();
+      } catch {
+        return false;
+      }
+    }),
+  );
+
+  return stateFiltered.filter((_, i) => checks[i]);
 }
 
 export function toolDefs(tools: Tool[]): ToolDefinition[] {
   return tools.map((t) => t.def);
+}
+
+// Check whether a tool's output should be preserved during pre-compaction
+// pruning. Used by compact.ts to skip the placeholder replacement for tools
+// whose results are valuable recalled context.
+export function isToolPreserved(name: string): boolean {
+  const tool = ALL_TOOLS.find((t) => t.def.name === name);
+  return tool?.preserveOnCompact === true;
 }
 
 export async function dispatchTool(

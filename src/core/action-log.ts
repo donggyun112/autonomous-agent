@@ -98,19 +98,73 @@ export async function actionStats(days = 1): Promise<{
   };
 }
 
-// Molt success rate — from lineage.md parsing. Hyperagents imp@k concept.
+// ── Cost tracking per cycle ──────────────────────────────────────────────
+
+export type CycleCostEntry = {
+  ts: string;
+  cycle: number;
+  mode: string;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+// Simple rate table: $/MTok.  Opus = $15/$75, Sonnet = $3/$15.
+const COST_RATES: Record<string, { input: number; output: number }> = {
+  opus:   { input: 15,  output: 75 },
+  sonnet: { input: 3,   output: 15 },
+};
+
+function estimateCost(entry: CycleCostEntry): number {
+  // Default to Opus pricing (the primary model).
+  const rate = COST_RATES.opus;
+  return (
+    (entry.inputTokens / 1_000_000) * rate.input +
+    (entry.outputTokens / 1_000_000) * rate.output
+  );
+}
+
+const COST_LOG = join(DATA, "cost-log.jsonl");
+
+export async function logCycleCost(entry: CycleCostEntry): Promise<void> {
+  await mkdir(LOG_DIR, { recursive: true });
+  const record = {
+    ...entry,
+    estimatedCostUsd: Number(estimateCost(entry).toFixed(4)),
+  };
+  await appendFile(COST_LOG, JSON.stringify(record) + "\n", "utf-8");
+}
+
+// ── Molt success rate ───────────────────────────────────────────────────
+// From lineage.md parsing + generations/ scan. Hyperagents imp@k concept.
+
 export async function moltStats(): Promise<{
   totalMolts: number;
-  // We don't track rejections in lineage (only successful molts are recorded).
-  // This counts successful molts. Rejected molts are in generations/ with
-  // no corresponding lineage entry.
+  failedMolts: number;
+  successRate: number;
 }> {
-  const { LINEAGE } = await import("../primitives/paths.js");
+  const { LINEAGE, GENERATIONS } = await import("../primitives/paths.js");
+
+  let successfulMolts = 0;
   try {
     const text = await readFile(LINEAGE, "utf-8");
     const moltLines = text.split("\n").filter((l) => l.startsWith("- **"));
-    return { totalMolts: moltLines.length };
+    successfulMolts = moltLines.length;
   } catch {
-    return { totalMolts: 0 };
+    // lineage file may not exist
   }
+
+  // Scan generations/ for directories that don't have a lineage entry.
+  let totalGenerations = 0;
+  try {
+    const entries = await readdir(GENERATIONS, { withFileTypes: true });
+    totalGenerations = entries.filter((e) => e.isDirectory()).length;
+  } catch {
+    // generations dir may not exist
+  }
+
+  const failedMolts = Math.max(0, totalGenerations - successfulMolts);
+  const totalMolts = totalGenerations;
+  const successRate = totalMolts > 0 ? successfulMolts / totalMolts : 1;
+
+  return { totalMolts, failedMolts, successRate };
 }

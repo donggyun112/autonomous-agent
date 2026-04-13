@@ -14,6 +14,54 @@ import { AnthropicOAuthSource } from "./oauth.js";
 import { loadCredentials } from "./storage.js";
 import type { AuthSource } from "./types.js";
 
+// Multi-key AuthSource that supports rotating through ANTHROPIC_API_KEY,
+// ANTHROPIC_API_KEY_2, ANTHROPIC_API_KEY_3 when a key gets 401/403.
+//
+// The primary key is always tried first. When rotateCredential() is called,
+// the current key is moved to the back of the list and the next one becomes
+// active. If all keys have been exhausted, rotateCredential() returns false.
+class MultiKeySource implements AuthSource {
+  id = "multi-env";
+  private keys: string[];
+  private currentIndex = 0;
+  private exhaustedKeys = new Set<number>();
+
+  constructor() {
+    const envVars = ["ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY_2", "ANTHROPIC_API_KEY_3"];
+    this.keys = envVars
+      .map((v) => process.env[v])
+      .filter((k): k is string => !!k && k.length > 0);
+
+    if (this.keys.length === 0) {
+      throw new Error(
+        "No API keys available. Set ANTHROPIC_API_KEY (and optionally _2, _3) in .env.",
+      );
+    }
+  }
+
+  describe(): string {
+    return `multi-key (${this.keys.length} key${this.keys.length > 1 ? "s" : ""}, active index ${this.currentIndex})`;
+  }
+
+  async getApiKey(): Promise<string> {
+    return this.keys[this.currentIndex]!;
+  }
+
+  // Rotate to the next available key. Returns true if a new key was
+  // activated, false if all keys are exhausted.
+  async rotateCredential(): Promise<boolean> {
+    this.exhaustedKeys.add(this.currentIndex);
+
+    for (let i = 0; i < this.keys.length; i++) {
+      if (!this.exhaustedKeys.has(i)) {
+        this.currentIndex = i;
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
 let _source: AuthSource | null = null;
 
 export async function getAuthSource(): Promise<AuthSource> {
@@ -22,7 +70,8 @@ export async function getAuthSource(): Promise<AuthSource> {
   const mode = (process.env.AGENT_AUTH ?? "auto").toLowerCase();
 
   if (mode === "api_key" || mode === "apikey") {
-    _source = new EnvApiKeySource();
+    // Use multi-key source when explicit api_key mode is requested.
+    _source = new MultiKeySource();
     return _source;
   }
 
@@ -33,7 +82,7 @@ export async function getAuthSource(): Promise<AuthSource> {
 
   if (mode === "auto") {
     if (process.env.ANTHROPIC_API_KEY) {
-      _source = new EnvApiKeySource();
+      _source = new MultiKeySource();
       return _source;
     }
     // Check if OAuth credentials exist on disk

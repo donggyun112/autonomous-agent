@@ -6,6 +6,22 @@
 //   cli.ts cycle                   — run one cycle in the current mode and exit.
 //   cli.ts live                    — daemon. Cycles forever; honors agent-requested sleep; performs molt swaps.
 //   cli.ts self-test <generationId> — used internally by the molt protocol.
+//
+// Profile support: --profile <name> sets AGENT_PROFILE env var.
+// NOTE: In ESM, static imports are hoisted and evaluated before module code
+// runs. The --profile flag here therefore does NOT affect paths.ts on first
+// load (paths.ts initializes DATA at import time). For profiles to work
+// correctly, set the env var BEFORE launching:
+//   AGENT_PROFILE=foo pnpm cycle
+// The flag below is a convenience for tsx which evaluates sequentially, and
+// a documentation aid. For pure Node ESM, use the env var directly.
+{
+  const args = process.argv;
+  const idx = args.indexOf("--profile");
+  if (idx !== -1 && args[idx + 1]) {
+    process.env.AGENT_PROFILE = args[idx + 1];
+  }
+}
 
 import { existsSync } from "fs";
 import { mkdir, readdir, readFile, stat } from "fs/promises";
@@ -20,7 +36,15 @@ import {
   userReply,
 } from "./core/conversation.js";
 import { birth, measureDrift } from "./core/identity.js";
-import { cleanupPendingSwapMarker, readPendingSwap, runMockCycleTest, runSelfTest } from "./core/molt.js";
+import {
+  cleanupPendingSwapMarker,
+  incrementMoltFailureCount,
+  readPendingSwap,
+  resetMoltFailureCount,
+  rollbackMolt,
+  runMockCycleTest,
+  runSelfTest,
+} from "./core/molt.js";
 import {
   calculateSleepPressure,
   loadState,
@@ -38,10 +62,19 @@ import { memoryStats } from "./primitives/recall.js";
 import { DATA, JOURNAL_DIR, LINEAGE, WHO_AM_I } from "./primitives/paths.js";
 
 async function init(args: string[]): Promise<void> {
-  const seedName = args[0]?.trim();
+  // Parse --lang flag: `init <name> --lang ko`
+  let seedName = "";
+  let language = "ko"; // default
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--lang" && args[i + 1]) {
+      language = args[++i];
+    } else if (!seedName) {
+      seedName = args[i].trim();
+    }
+  }
   if (!seedName) {
-    console.error("usage: cli.ts init <seed_name>");
-    console.error("  example: cli.ts init Soren");
+    console.error("usage: cli.ts init <seed_name> [--lang ko|en|ja]");
+    console.error("  example: cli.ts init Soren --lang ko");
     process.exit(2);
   }
 
@@ -56,6 +89,8 @@ async function init(args: string[]): Promise<void> {
 
   const state = await loadState();
   state.seedName = seedName;
+  state.language = language;
+  state.bornAt = Date.now();
   state.lastTransition = Date.now();
   state.lastTransitionReason = "born";
   await saveState(state);
@@ -346,6 +381,10 @@ async function live(): Promise<void> {
   // a stale file.
   await maybeCleanupSwapMarker();
 
+  // #22: Track consecutive cycle errors for auto-rollback after a molt.
+  const ROLLBACK_THRESHOLD = 3;
+  let consecutiveErrors = 0;
+
   let running = true;
   process.on("SIGINT", () => {
     console.log("\n[live] stopping after current cycle…");
@@ -401,6 +440,19 @@ async function live(): Promise<void> {
         `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
       );
 
+      // #22: Successful cycle — reset consecutive error counter.
+      consecutiveErrors = 0;
+      await resetMoltFailureCount();
+
+      // Cooldown after rest: if the agent rested without doing anything
+      // meaningful (0 tool calls or reason=rested), wait before restarting
+      // to prevent a tight spin loop that burns API quota.
+      if (result.reason === "rested") {
+        const cooldownMs = result.toolCalls === 0 ? 60_000 : 10_000;
+        console.log(`[live] rested — cooling down ${cooldownMs / 1000}s`);
+        await sleep(cooldownMs);
+      }
+
       // Round-6 P1 fix: after molt_swap, we need to stop the container
       // so the host can recreate it with the new image. Docker restart
       // policies reuse the same container pinned to its original image ID,
@@ -425,6 +477,43 @@ async function live(): Promise<void> {
       }
     } catch (err) {
       console.error(`[live] cycle error: ${(err as Error).message}`);
+      consecutiveErrors += 1;
+
+      // Classify the error — rate_limit and network errors should NOT trigger
+      // rollback (they're infrastructure issues, not code bugs).
+      const { classifyError } = await import("./core/errors.js");
+      const classified = classifyError(err);
+      const isInfraError = classified.category === "rate_limit" || classified.category === "network";
+
+      if (isInfraError) {
+        // For rate_limit/network: just back off, don't count toward rollback.
+        const backoff = classified.category === "rate_limit" ? 60_000 : 30_000;
+        console.log(`[live] ${classified.category} — backing off ${backoff / 1000}s`);
+        await sleep(backoff);
+        continue;
+      }
+
+      // Non-infra error: count toward rollback threshold.
+      await incrementMoltFailureCount();
+      if (consecutiveErrors >= ROLLBACK_THRESHOLD) {
+        console.error(
+          `[live] ${ROLLBACK_THRESHOLD} consecutive cycle errors — attempting auto-rollback…`,
+        );
+        try {
+          const rollbackResult = await rollbackMolt(
+            `${consecutiveErrors} consecutive cycle failures`,
+          );
+          if (rollbackResult) {
+            console.log(`[molt] rolled back to ${rollbackResult.newTag}. Exiting for container recreation.`);
+            process.exit(42);
+          } else {
+            console.error("[molt] no previous image available for rollback.");
+          }
+        } catch (rollbackErr) {
+          console.error(`[molt] rollback failed: ${(rollbackErr as Error).message}`);
+        }
+      }
+
       // Sleep a bit before retrying so we don't burn API on a stuck error.
       await sleep(30_000);
     }
@@ -438,7 +527,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [, , cmd, ...rest] = process.argv;
+  // Strip --profile <name> from argv so subcommand parsing isn't confused.
+  const rawArgs = process.argv.slice(2);
+  const filteredArgs: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    if (rawArgs[i] === "--profile" && rawArgs[i + 1]) {
+      i++; // skip the value too
+      continue;
+    }
+    filteredArgs.push(rawArgs[i]);
+  }
+  const [cmd, ...rest] = filteredArgs;
   switch (cmd) {
     case "init":
       await init(rest);
@@ -477,7 +576,7 @@ async function main(): Promise<void> {
       break;
     default:
       console.error(
-        "usage: cli.ts <init|cycle|live|status|login|logout|whoami|inbox|reply|self-test>",
+        "usage: cli.ts [--profile <name>] <init|cycle|live|status|login|logout|whoami|inbox|reply|self-test>",
       );
       process.exit(2);
   }

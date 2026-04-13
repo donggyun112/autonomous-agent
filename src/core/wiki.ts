@@ -48,6 +48,9 @@ export type WikiPageFrontmatter = {
   related?: string[];
   // Free-text: the reason the page was last revised.
   reason?: string;
+  // #12: Confidence score (0-1, default 0.5). Incremented by 0.1 each time
+  // the page is updated during sleep consolidation, capped at 1.0.
+  confidence?: number;
 };
 
 export type WikiPage = {
@@ -55,6 +58,9 @@ export type WikiPage = {
   body: string;
   path: string;
 };
+
+// Shared regex for [[wikilink]] detection — used in writePage and lintWiki.
+const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
 // ── Slug / path helpers ──────────────────────────────────────────────────
 
@@ -109,6 +115,9 @@ function serializeFrontmatter(fm: WikiPageFrontmatter): string {
   if (fm.reason) {
     lines.push(`reason: ${JSON.stringify(fm.reason)}`);
   }
+  if (fm.confidence != null) {
+    lines.push(`confidence: ${fm.confidence}`);
+  }
   lines.push("---");
   return lines.join("\n");
 }
@@ -154,6 +163,7 @@ function parseFrontmatter(text: string): {
       sources: Array.isArray(obj.sources) ? (obj.sources as string[]) : undefined,
       related: Array.isArray(obj.related) ? (obj.related as string[]) : undefined,
       reason: obj.reason ? String(obj.reason) : undefined,
+      confidence: obj.confidence != null ? Number(obj.confidence) : undefined,
     },
     body,
   };
@@ -181,12 +191,58 @@ export async function writePage(args: {
   sources?: string[];
   related?: string[];
   reason?: string;
-}): Promise<{ created: boolean; path: string }> {
+  /** #12: If true, increment confidence (used by sleep consolidation). */
+  sleepConsolidation?: boolean;
+}): Promise<{ created: boolean; path: string; warning?: string }> {
   const path = pathForPage(args.kind, args.slug);
   await mkdir(dirForKind(args.kind), { recursive: true });
 
   const existing = await readPage(args.kind, args.slug);
   const now = new Date().toISOString();
+
+  // #12: Compute confidence. New pages start at 0.5. Sleep consolidation
+  // increments by 0.1, capped at 1.0.
+  let confidence = existing?.frontmatter.confidence ?? 0.5;
+  if (args.sleepConsolidation && existing) {
+    confidence = Math.min(1.0, Math.round((confidence + 0.1) * 100) / 100);
+  }
+
+  // #12: Warn if agent tries to completely rewrite a high-confidence page.
+  let warning: string | undefined;
+  if (
+    existing &&
+    (existing.frontmatter.confidence ?? 0.5) > 0.8 &&
+    !args.sleepConsolidation
+  ) {
+    warning =
+      `Warning: page "${args.slug}" has high confidence (${existing.frontmatter.confidence}). ` +
+      `Complete rewrites of settled pages may lose accumulated knowledge.`;
+  }
+
+  // #40: Auto cross-reference. Scan the body for [[wikilink]] patterns and
+  // mentions of other existing page titles. Add discovered slugs to related.
+  const incomingRelated = new Set<string>(args.related ?? existing?.frontmatter.related ?? []);
+  try {
+    const allPages = await listPages();
+    // Scan for [[wikilinks]]
+    for (const match of args.body.matchAll(WIKILINK_RE)) {
+      const linkSlug = slugify(match[1].trim());
+      if (linkSlug && linkSlug !== args.slug) {
+        incomingRelated.add(linkSlug);
+      }
+    }
+    // Scan for mentions of existing page titles in the body text
+    const bodyLower = args.body.toLowerCase();
+    for (const page of allPages) {
+      if (page.slug === args.slug) continue;
+      if (bodyLower.includes(page.title.toLowerCase())) {
+        incomingRelated.add(page.slug);
+      }
+    }
+  } catch {
+    // Non-fatal: if listing pages fails, skip auto cross-ref
+  }
+  const mergedRelated = [...incomingRelated].filter(Boolean);
 
   const fm: WikiPageFrontmatter = {
     slug: args.slug,
@@ -195,8 +251,9 @@ export async function writePage(args: {
     created_at: existing?.frontmatter.created_at ?? now,
     updated_at: now,
     sources: args.sources ?? existing?.frontmatter.sources,
-    related: args.related ?? existing?.frontmatter.related,
+    related: mergedRelated.length > 0 ? mergedRelated : undefined,
     reason: args.reason,
+    confidence,
   };
 
   const content = `${serializeFrontmatter(fm)}\n\n${args.body.trim()}\n`;
@@ -210,7 +267,7 @@ export async function writePage(args: {
     note: args.reason,
   });
 
-  return { created: !existing, path };
+  return { created: !existing, path, warning };
 }
 
 // ── List pages ───────────────────────────────────────────────────────────
@@ -365,10 +422,9 @@ export async function rebuildIndex(): Promise<{ count: number; path: string }> {
 //   lonely         — concept page with no sources recorded
 
 const STALE_DAYS_DEFAULT = 30;
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
 export type LintFinding = {
-  kind: "orphan" | "stale" | "broken-link" | "lonely";
+  kind: "orphan" | "stale" | "broken-link" | "lonely" | "contradiction";
   slug: string;
   pageKind: WikiKind;
   detail: string;
@@ -454,6 +510,90 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
     }
   }
 
+  // #37: Wiki Contradiction Detection. For each pair of pages that share
+  // `related` slugs, do a basic keyword overlap check. If two pages use
+  // opposing language about the same topic (same nouns but one has negation
+  // words while the other affirms), flag as potential contradiction.
+  const NEGATION_RE = /\b(?:not|never|no longer|isn't|aren't|wasn't|doesn't|don't|cannot|can't|won't|wrong|incorrect|false)\b/i;
+
+  // Build a map of related slug -> list of page indices that reference it.
+  const relatedIndex = new Map<string, number[]>();
+  const pageData: { slug: string; kind: WikiKind; body: string; nouns: string[] }[] = [];
+
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i];
+    let text: string;
+    try {
+      text = await readFile(p.path, "utf-8");
+    } catch {
+      pageData.push({ slug: p.slug, kind: p.kind, body: "", nouns: [] });
+      continue;
+    }
+    const { fm, body } = parseFrontmatter(text);
+    // Extract nouns: words >= 4 chars, lowercased
+    const nouns = [...new Set(
+      body.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4),
+    )];
+    pageData.push({ slug: p.slug, kind: p.kind, body, nouns });
+
+    if (fm?.related) {
+      for (const rel of fm.related) {
+        if (!relatedIndex.has(rel)) relatedIndex.set(rel, []);
+        relatedIndex.get(rel)!.push(i);
+      }
+    }
+  }
+
+  // Check pairs that share a related slug
+  const checkedPairs = new Set<string>();
+  for (const indices of relatedIndex.values()) {
+    for (let a = 0; a < indices.length; a++) {
+      for (let b = a + 1; b < indices.length; b++) {
+        const ia = indices[a];
+        const ib = indices[b];
+        const pairKey = ia < ib ? `${ia}:${ib}` : `${ib}:${ia}`;
+        if (checkedPairs.has(pairKey)) continue;
+        checkedPairs.add(pairKey);
+
+        const pa = pageData[ia];
+        const pb = pageData[ib];
+        if (!pa.body || !pb.body) continue;
+
+        // Find shared nouns
+        const sharedNouns = pa.nouns.filter((n) => pb.nouns.includes(n));
+        if (sharedNouns.length < 2) continue;
+
+        // Check if one page negates near a shared noun while the other affirms
+        for (const noun of sharedNouns.slice(0, 10)) {
+          const nounIdx_a = pa.body.toLowerCase().indexOf(noun);
+          const nounIdx_b = pb.body.toLowerCase().indexOf(noun);
+          if (nounIdx_a === -1 || nounIdx_b === -1) continue;
+
+          const windowA = pa.body.slice(
+            Math.max(0, nounIdx_a - 60),
+            Math.min(pa.body.length, nounIdx_a + noun.length + 60),
+          );
+          const windowB = pb.body.slice(
+            Math.max(0, nounIdx_b - 60),
+            Math.min(pb.body.length, nounIdx_b + noun.length + 60),
+          );
+
+          const aNeg = NEGATION_RE.test(windowA);
+          const bNeg = NEGATION_RE.test(windowB);
+          if (aNeg !== bNeg) {
+            findings.push({
+              kind: "contradiction",
+              slug: pa.slug,
+              pageKind: pa.kind,
+              detail: `potential contradiction with "${pb.slug}" on term "${noun}" — one negates, the other affirms`,
+            });
+            break; // one finding per pair is enough
+          }
+        }
+      }
+    }
+  }
+
   if (findings.length > 0) {
     await appendLog({
       ts: new Date().toISOString(),
@@ -472,7 +612,7 @@ export async function lintWiki(options?: { staleDays?: number }): Promise<LintRe
     summary:
       findings.length === 0
         ? `${pages.length} pages, all healthy`
-        : `${pages.length} pages, ${findings.length} finding(s): ${["orphan", "stale", "broken-link", "lonely"]
+        : `${pages.length} pages, ${findings.length} finding(s): ${["orphan", "stale", "broken-link", "lonely", "contradiction"]
             .map((k) => `${findings.filter((f) => f.kind === k).length} ${k}`)
             .join(", ")}`,
   };

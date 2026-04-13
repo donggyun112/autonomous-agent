@@ -10,10 +10,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "dotenv";
 import { getAuthSource } from "./auth/source.js";
+import { classifyError } from "../core/errors.js";
+import { logSystem } from "../core/system-log.js";
 
 config();
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-6";
+const AUXILIARY_MODEL = process.env.AUXILIARY_MODEL ?? "claude-sonnet-4-20250514";
+
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 30_000;
 
 // Detect whether an Anthropic credential is an OAuth access token or an API key.
 // OAuth tokens issued by the Claude.ai login flow start with `sk-ant-oat`;
@@ -150,7 +157,9 @@ async function mockThink(args: {
   return result;
 }
 
-export async function think(args: {
+// Internal: perform a single LLM request (no retry). Extracted so that the
+// retry wrapper can call it cleanly.
+async function thinkOnce(args: {
   systemPrompt: string;
   messages: Message[];
   tools?: ToolDefinition[];
@@ -158,10 +167,6 @@ export async function think(args: {
   model?: string;
   onEvent?: ThinkEventSink;
 }): Promise<ThinkResult> {
-  if (process.env.SELF_TEST_MOCK_LLM === "1") {
-    return mockThink({ onEvent: args.onEvent });
-  }
-
   const source = await getAuthSource();
   const apiKey = await source.getApiKey();
   const { client, isOAuth } = buildClient(apiKey);
@@ -215,4 +220,94 @@ export async function think(args: {
   }
 
   return result;
+}
+
+// Sleep helper for exponential backoff.
+function backoffMs(attempt: number): number {
+  const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+  // Add jitter: +-25% to avoid thundering herd.
+  const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+  return Math.min(delay + jitter, MAX_BACKOFF_MS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function think(args: {
+  systemPrompt: string;
+  messages: Message[];
+  tools?: ToolDefinition[];
+  maxTokens?: number;
+  model?: string;
+  onEvent?: ThinkEventSink;
+}): Promise<ThinkResult> {
+  if (process.env.SELF_TEST_MOCK_LLM === "1") {
+    return mockThink({ onEvent: args.onEvent });
+  }
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const start = Date.now();
+      const result = await thinkOnce(args);
+      const durationMs = Date.now() - start;
+      try {
+        await logSystem({
+          ts: new Date().toISOString(),
+          event: "llm_call",
+          model: args.model ?? DEFAULT_MODEL,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          durationMs,
+        });
+      } catch {
+        // logging must never crash the caller
+      }
+      return result;
+    } catch (err: unknown) {
+      lastError = err;
+      const classified = classifyError(err);
+
+      // Auth errors: try rotating credentials before retrying.
+      if (classified.category === "auth" && classified.recovery.should_rotate_credential) {
+        const source = await getAuthSource();
+        if ("rotateCredential" in source && typeof (source as Record<string, unknown>).rotateCredential === "function") {
+          const rotated = await (source as { rotateCredential: () => Promise<boolean> }).rotateCredential();
+          if (rotated && attempt < MAX_RETRIES) {
+            continue; // retry immediately with the new key
+          }
+        }
+      }
+
+      // Only retry on retryable errors (rate_limit, network).
+      if (!classified.recovery.retryable || attempt >= MAX_RETRIES) {
+        throw err;
+      }
+
+      const delay = backoffMs(attempt);
+      await sleep(delay);
+    }
+  }
+
+  // Should be unreachable, but satisfies the compiler.
+  throw lastError;
+}
+
+// Auxiliary model variant of think(). Same signature but defaults to a cheaper
+// model (AUXILIARY_MODEL env var, fallback claude-sonnet-4-20250514). Use this for
+// non-critical operations like sleep consolidation where Opus-level reasoning
+// is unnecessary.
+export async function thinkAux(args: {
+  systemPrompt: string;
+  messages: Message[];
+  tools?: ToolDefinition[];
+  maxTokens?: number;
+  model?: string;
+  onEvent?: ThinkEventSink;
+}): Promise<ThinkResult> {
+  return think({
+    ...args,
+    model: args.model ?? AUXILIARY_MODEL,
+  });
 }

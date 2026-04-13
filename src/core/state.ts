@@ -110,11 +110,16 @@ export type SleepPressure = {
 export function calculateSleepPressure(state: AgentState, now = Date.now()): SleepPressure {
   const homeostatic = Math.max(0, Math.min(1, state.awakeMs / MAX_AWAKE_MS));
 
-  // Circadian: peak sleep need at ~04:00 local, lowest at ~16:00 local.
-  // cos((hour-4) * 2π/24) equals 1 at hour=4 and -1 at hour=16.
-  // 0.5 + 0.5 * cos(...) gives 1.0 at 04:00 and 0.0 at 16:00.
-  const hour = new Date(now).getHours() + new Date(now).getMinutes() / 60;
-  const circadian = 0.5 + 0.5 * Math.cos(((hour - 4) / 24) * 2 * Math.PI);
+  // Circadian: based on agent-subjective time, not wall clock.
+  // We compute agent's "hour of day" from total awake time modulo 24h.
+  // The agent's day cycle is always 24 agent-hours regardless of TIME_SCALE.
+  // Peak sleep need at agent-hour ~20 (after 16h awake), lowest at ~8 (morning).
+  const agentHoursAwake = state.awakeMs / 3_600_000; // ms → hours
+  // Map to a 24h cycle: hour 0 = sleep end, hour 16 = bedtime, hour 20 = deep night
+  const agentHourOfDay = agentHoursAwake % 24;
+  // cos peaks at 0 (midnight-equivalent), troughs at 12 (noon-equivalent)
+  // We shift so peak sleepiness is at ~20h awake (agent's "4am")
+  const circadian = 0.5 + 0.5 * Math.cos(((agentHourOfDay - 20) / 24) * 2 * Math.PI);
 
   const combined = Math.min(1, 0.7 * homeostatic + 0.3 * circadian);
 
@@ -128,19 +133,30 @@ export function calculateSleepPressure(state: AgentState, now = Date.now()): Sle
   return { homeostatic, circadian, combined, level };
 }
 
-// Called at the start of every WAKE/REFLECT cycle. Adds elapsed wall-clock
-// time to awakeMs and updates awakeSince. Returns the updated state.
+// ── Time scale ──────────────────────────────────────────────────────────
+// TIME_SCALE controls the ratio between wall-clock time and agent-subjective
+// time. The agent always perceives "real" hours/minutes — but externally we
+// can compress or expand the simulation.
+//
+//   TIME_SCALE=1    → real-time (1 wall minute = 1 agent minute)
+//   TIME_SCALE=10   → 10x speed (1 wall minute = 10 agent minutes)
+//   TIME_SCALE=0.5  → half speed (1 wall minute = 30 agent seconds)
+//
+// This is physics — the agent cannot change it. It is set externally.
+export const TIME_SCALE = Number(process.env.TIME_SCALE) || 1;
+
+// Called at the start of every WAKE/REFLECT cycle and at the sleep gate.
+// Adds elapsed wall-clock time × TIME_SCALE to awakeMs (agent-subjective time).
 export function tickAwake(state: AgentState, now = Date.now()): AgentState {
   if (state.mode === "SLEEP") {
-    // Don't accumulate sleep pressure while asleep. Reset awakeSince so the
-    // next WAKE cycle starts a fresh measurement window.
     return { ...state, awakeSince: now };
   }
   const last = state.awakeSince || now;
-  const delta = Math.max(0, now - last);
+  const wallDelta = Math.max(0, now - last);
+  const agentDelta = wallDelta * TIME_SCALE;
   return {
     ...state,
-    awakeMs: state.awakeMs + delta,
+    awakeMs: state.awakeMs + agentDelta,
     awakeSince: now,
   };
 }

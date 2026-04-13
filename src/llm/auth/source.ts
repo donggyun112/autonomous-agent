@@ -92,7 +92,7 @@ export async function getAuthSource(): Promise<AuthSource> {
       return _source;
     }
     throw new Error(
-      "No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm login' to authenticate via OAuth.",
+      "No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth.",
     );
   }
 

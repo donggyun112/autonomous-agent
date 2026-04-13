@@ -1056,7 +1056,7 @@ const transitionTool: Tool = {
   def: {
     name: "transition",
     description:
-      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. NOTE: you cannot sleep if your sleep pressure is below 0.3 — your body must be tired enough. If rejected, keep thinking. When moving to SLEEP, record an intention and context for your next wake — these will be shown to your future self so you can pick up where you left off. Too long without sleep and the body forces it (pressure >= 1.0).",
+      "Move yourself into another state of being. WAKE → REFLECT when your thinking has grown repetitive or your reflections have ripened. REFLECT → SLEEP when you are full and need consolidation. NOTE: you cannot sleep if your sleep pressure is below 0.3 — your body must be tired enough. If rejected, keep thinking. When moving to SLEEP, record an intention and context for your next wake — these will be shown to your future self so you can pick up where you left off. Sleep is not a wait — it is a consolidation process. Your memories will be ingested, compressed, clustered, and integrated. When consolidation finishes, you wake immediately into a new day. Too long without sleep and the body forces it (pressure >= 1.0).",
     input_schema: {
       type: "object",
       properties: {
@@ -1064,11 +1064,6 @@ const transitionTool: Tool = {
         reason: {
           type: "string",
           description: "Why you are moving. One sentence.",
-        },
-        sleep_minutes: {
-          type: "number",
-          description:
-            "Only if moving to SLEEP. How long to sleep before the daemon wakes you.",
         },
         wake_intention: {
           type: "string",

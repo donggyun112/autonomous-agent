@@ -131,8 +131,8 @@ function liveObserver() {
     onToolEnd: (name: string, result: string) => {
       // Show short result for non-journal tools.
       if (name === "journal" || name === "transition" || name === "rest") return;
-      if (result.length > 200) {
-        process.stdout.write(`\x1b[2m    ← ${result.slice(0, 150)}…\x1b[0m\n`);
+      if (result.length > 800) {
+        process.stdout.write(`\x1b[2m    ← ${result.slice(0, 600)}…\x1b[0m\n`);
       } else if (result && result !== "TRANSITION_REQUESTED" && result !== "REST_REQUESTED") {
         process.stdout.write(`\x1b[2m    ← ${result}\x1b[0m\n`);
       }
@@ -300,7 +300,7 @@ async function whoamiCmd(): Promise<void> {
   } else if (process.env.ANTHROPIC_API_KEY) {
     console.log("auth: $ANTHROPIC_API_KEY (environment)");
   } else {
-    console.log("auth: (none) — run `pnpm login` or set ANTHROPIC_API_KEY");
+    console.log("auth: (none) — run `pnpm run login` or set ANTHROPIC_API_KEY");
   }
 }
 
@@ -412,25 +412,16 @@ async function live(): Promise<void> {
       // scheduled-wakes check should never crash daemon
     }
 
-    // Honor scheduled wake (transition's sleep_minutes).
-    if (state.wakeAfter && Date.now() < state.wakeAfter) {
-      const waitMs = state.wakeAfter - Date.now();
-      const sleepFor = Math.min(waitMs, 60_000);
-      await sleep(sleepFor);
-      continue;
-    }
-
-    // If the agent is in SLEEP and a wake time has passed, DO NOT flip to
-    // WAKE directly — that would skip runSleepConsolidation(). Instead,
-    // leave mode=SLEEP and let runCycle() hit the SLEEP branch, which runs
-    // consolidation (dream, prune, wiki, whoAmI integrate, etc.) and THEN
-    // transitions to WAKE with awakeMs reset. The wakeAfter field is only
-    // cleared after consolidation runs. (P1-1 fix: GPT-5.4 review)
-    if (state.mode === "SLEEP" && state.wakeAfter && Date.now() >= state.wakeAfter) {
-      // Clear wakeAfter so the daemon doesn't keep looping without acting,
-      // but keep mode=SLEEP so consolidation fires.
-      state.wakeAfter = 0;
-      await saveState(state);
+    // SLEEP mode: run consolidation immediately. The agent's sleep is a
+    // consolidation PROCESS, not a wall-clock wait. wakeAfter/sleep_minutes
+    // are ignored — there's no reason for the agent to wait in real time.
+    // The "duration" of sleep is however long consolidation takes (~1-2 min).
+    if (state.mode === "SLEEP") {
+      // Clear wakeAfter (legacy) and proceed straight to consolidation.
+      if (state.wakeAfter) {
+        state.wakeAfter = 0;
+        await saveState(state);
+      }
       // runCycle() will see mode=SLEEP → run consolidation → transition WAKE.
     }
 

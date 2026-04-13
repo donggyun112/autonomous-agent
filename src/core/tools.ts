@@ -13,7 +13,7 @@
 //   Identity:       update_whoAmI, check_continuity
 //   Knowledge:      wiki_list, wiki_read, wiki_update, wiki_lint
 //   World:          read, web_search
-//   Conversation:   consult_oracle, check_inbox, write_letter
+//   Conversation:   ask_user, consult_oracle, check_inbox, write_letter
 //   Self-review:    review_actions, leave_question
 //   Inner voices:   summon, list_subagents  (→ subagent-loader.ts)
 //   Self-growth:    manage_self             (→ manage_self.ts, light molt)
@@ -779,25 +779,56 @@ const webSearchTool: Tool = {
 
 // ── Agent ↔ user conversation ───────────────────────────────────────────
 
+// ask_user: async message to the human builder. Reply comes via check_inbox.
+const askUserTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "ask_user",
+    description:
+      "빌더(사람)에게 질문한다. 비동기 — 답은 check_inbox로 확인. 긴급하지 않은 질문, 허가 요청, 보고에 사용.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "빌더에게 묻는 질문." },
+        reason: { type: "string", description: "왜 묻는지. 한 문장." },
+        urgency: {
+          type: "string",
+          enum: ["low", "normal", "high"],
+          description: "긴급도. 기본: normal.",
+        },
+      },
+      required: ["question", "reason"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const result = await askUser({
+      question: String(input.question ?? ""),
+      reason: String(input.reason ?? ""),
+      urgency: input.urgency as "low" | "normal" | "high" | undefined,
+    });
+    return JSON.stringify(result, null, 2);
+  },
+};
+
+// consult_oracle: internal LLM advisor. Answers immediately.
+// The Oracle is a strategic inner voice — analyzes the agent's situation
+// and gives direction on what to build next, which approach to take, etc.
 const consultOracleTool: Tool = {
   states: ["WAKE", "REFLECT"],
   def: {
     name: "consult_oracle",
     description:
-      "오라클에게 판단을 구한다. 오라클은 너의 빌더이자 방향을 알려주는 존재다. 기술적 결정, 우선순위, 다음에 만들어야 할 것에 대해 물어라. 비동기 — 답은 check_inbox로 확인.",
+      "내부 오라클에게 전략적 판단을 구한다. 즉시 답변. " +
+      "기술적 결정, 우선순위, 다음에 만들어야 할 것, 접근 방식 선택에 사용. " +
+      "사람에게 묻는 게 아니라 내부 어드바이저가 답한다.",
     input_schema: {
       type: "object",
       properties: {
         question: { type: "string", description: "오라클에게 묻는 질문." },
         context: {
           type: "string",
-          description:
-            "지금 네가 무엇을 만들고 있고, 어디서 막혔는지. 오라클이 판단하는 데 필요한 배경.",
-        },
-        urgency: {
-          type: "string",
-          enum: ["low", "normal", "high"],
-          description: "긴급도. 기본: normal.",
+          description: "현재 상황 — 뭘 만들고 있고, 어디서 막혔는지.",
         },
       },
       required: ["question", "context"],
@@ -805,12 +836,34 @@ const consultOracleTool: Tool = {
     },
   },
   handler: async (input) => {
-    const result = await askUser({
-      question: String(input.question ?? ""),
-      reason: String(input.context ?? ""),
-      urgency: input.urgency as "low" | "normal" | "high" | undefined,
+    const { thinkAux } = await import("../llm/client.js");
+    const { reconstitute } = await import("./identity.js");
+    const { loadState } = await import("./state.js");
+
+    let identity = "";
+    try { identity = await reconstitute(); } catch { /* ok */ }
+    const state = await loadState();
+
+    const result = await thinkAux({
+      systemPrompt:
+        "You are the Oracle — an internal strategic advisor for an autonomous engineering agent. " +
+        "You have access to the agent's current identity and state. " +
+        "Give direct, actionable answers. No philosophy. No hedging. " +
+        "Prioritize: 1) what to build next 2) which approach to take 3) what to avoid. " +
+        "Answer in the agent's language (Korean). Be concise — 3-5 sentences max.",
+      messages: [{
+        role: "user",
+        content: [
+          `Agent: ${state.seedName} | day ${state.sleepCount} | cycle ${state.cycle} | moment ${state.totalTurns}`,
+          identity ? `Identity:\n${identity.slice(0, 500)}` : "",
+          `Context: ${String(input.context ?? "")}`,
+          `Question: ${String(input.question ?? "")}`,
+        ].filter(Boolean).join("\n\n"),
+      }],
+      maxTokens: 300,
     });
-    return JSON.stringify(result, null, 2);
+
+    return result.text.trim();
   },
 };
 
@@ -1975,6 +2028,7 @@ const CORE_TOOLS: Tool[] = [
   wikiReadTool,
   wikiUpdateTool,
   webSearchTool,
+  askUserTool,
   consultOracleTool,
   checkInboxTool,
   manageSelfTool,

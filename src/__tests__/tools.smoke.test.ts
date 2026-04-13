@@ -62,11 +62,16 @@ afterAll(async () => {
 });
 
 async function findTool(name: string) {
+  // Check core tools via toolsForMode first.
   for (const mode of ["WAKE", "REFLECT", "SLEEP"] as const) {
     const tools = await toolsMod.toolsForMode(mode);
     const hit = tools.find((t) => t.def.name === name);
     if (hit) return hit;
   }
+  // Fall back to registry (includes extended/on-demand tools).
+  const { registry } = await import("../core/tool-registry.js");
+  const regTool = registry.get(name);
+  if (regTool) return regTool;
   throw new Error(`tool not found: ${name}`);
 }
 

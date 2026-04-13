@@ -395,22 +395,23 @@ async function live(): Promise<void> {
       // meaningful (0 tool calls or reason=rested), wait before restarting
       // to prevent a tight spin loop that burns API quota.
       if (result.reason === "rested" && result.toolCalls === 0) {
-        // Only count truly idle rests (no tool calls at all).
         consecutiveRests += 1;
         console.log(`[live] idle rest — cooling down 60s (${consecutiveRests} consecutive)`);
-        if (consecutiveRests >= 3) {
-          console.log("[live] session stale — clearing for fresh start");
+        if (consecutiveRests >= 5) {
+          // Agent is stuck. Clear session to break the loop.
+          // Journal, whoAmI, memory, wiki all survive — only conversation cache lost.
+          console.log("[live] stuck — clearing session for fresh start");
           const { clearSession } = await import("./core/session-store.js");
           await clearSession();
           consecutiveRests = 0;
         }
         await sleep(60_000);
-      } else if (result.reason === "rested") {
-        consecutiveRests = 0;
-        console.log("[live] rested — cooling down 10s");
-        await sleep(10_000);
       } else {
         consecutiveRests = 0;
+        if (result.reason === "rested") {
+          console.log("[live] rested — cooling down 10s");
+          await sleep(10_000);
+        }
       }
 
       // Round-6 P1 fix: after molt_swap, we need to stop the container

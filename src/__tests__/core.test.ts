@@ -92,12 +92,21 @@ describe("state machine", () => {
     expect(state.lastTransitionReason).toBe("test transition");
   });
 
-  it("transition to WAKE increments cycle count", async () => {
+  it("REFLECT→WAKE does NOT increment cycle (epoch)", async () => {
     const { loadState, transition } = await import("../core/state.js");
     let state = await loadState();
     // Current mode should be REFLECT from previous test.
     const prevCycle = state.cycle;
     state = await transition(state, "WAKE", "back to wake");
+    expect(state.cycle).toBe(prevCycle); // no increment — only SLEEP→WAKE does
+  });
+
+  it("SLEEP→WAKE increments cycle (epoch)", async () => {
+    const { loadState, transition } = await import("../core/state.js");
+    let state = await loadState();
+    const prevCycle = state.cycle;
+    state = await transition(state, "SLEEP", "time to sleep");
+    state = await transition(state, "WAKE", "waking after sleep");
     expect(state.cycle).toBe(prevCycle + 1);
   });
 });

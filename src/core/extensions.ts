@@ -36,10 +36,11 @@
 // Sub-agents and rituals will get their own loaders later. For now only
 // the tool loader is live — that's what unlocks real growth.
 
-import { readdir, stat } from "fs/promises";
+import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { pathToFileURL } from "url";
 import { SRC } from "../primitives/paths.js";
+import { scanExtensionCode } from "./security.js";
 import type { Tool } from "./tools.js";
 
 const EXTENSIONS_TOOLS_DIR = join(SRC, "extensions", "tools");
@@ -92,6 +93,20 @@ export async function loadExtensionTools(): Promise<LoadedExtension[]> {
 
     const extensionName = entry.replace(/\.ts$/, "");
     try {
+      // Security scan BEFORE import — catches dangerous patterns even if
+      // the file was added outside manage_self (e.g. manual edit, molt patch).
+      const source = await readFile(full, "utf-8");
+      const scan = scanExtensionCode(source);
+      if (!scan.safe) {
+        loaded.push({
+          name: extensionName,
+          file: full,
+          tools: [],
+          error: `blocked by security scan: ${scan.threats.join(", ")}`,
+        });
+        continue;
+      }
+
       // ESM modules are cached by URL. We want edits via manage_self to
       // take effect on the next cycle, but we do NOT want a new module
       // instance every cycle (that leaks memory + re-runs side effects).

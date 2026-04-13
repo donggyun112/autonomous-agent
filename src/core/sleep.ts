@@ -326,7 +326,23 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
       try {
         // Choose a primary slug from the shared keys (first one).
         const candidateSlug = slugify(cluster.keys[0] ?? "theme");
-        const existing = candidateSlug ? await readPage("concept", candidateSlug) : null;
+        let existing = candidateSlug ? await readPage("concept", candidateSlug) : null;
+
+        // Dedup: if no exact slug match, check if any existing page covers
+        // the same topic (shared key words in title). Merge into that page
+        // instead of creating a duplicate.
+        const allPages = await listPages({ kind: "concept" });
+        if (!existing) {
+          const clusterKeyLower = cluster.keys.map(k => k.toLowerCase());
+          for (const p of allPages) {
+            const titleWords = p.title.toLowerCase().split(/\s+/);
+            const overlap = clusterKeyLower.filter(k => titleWords.some(tw => tw.includes(k) || k.includes(tw)));
+            if (overlap.length >= 2 || (overlap.length >= 1 && clusterKeyLower.length <= 2)) {
+              existing = await readPage("concept", p.slug);
+              break;
+            }
+          }
+        }
 
         const page = await extractSchemaAsPage({
           keys: cluster.keys,
@@ -335,9 +351,10 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
         });
         if (!page) continue;
 
-        // Gather related slugs from other concepts already in the wiki
-        // that mention any of the cluster's keys.
-        const allPages = await listPages({ kind: "concept" });
+        // If we found an existing page to merge into, use its slug.
+        if (existing && existing.frontmatter.slug !== page.slug) {
+          page.slug = existing.frontmatter.slug;
+        }
         const related = allPages
           .filter((p) => p.slug !== page.slug)
           .filter((p) =>

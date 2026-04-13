@@ -1566,17 +1566,39 @@ const shellTool: Tool = {
     const cmd = String(input.command ?? "").trim();
     if (!cmd) return "[error] command is required";
     const { spawn } = await import("child_process");
+    const TIMEOUT_MS = 30_000;
     return new Promise<string>((resolve) => {
-      const proc = spawn("sh", ["-c", cmd], { cwd: ROOT, timeout: 30_000 });
+      let settled = false;
+      const proc = spawn("sh", ["-c", cmd], { cwd: ROOT });
       let stdout = "";
       let stderr = "";
       proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
       proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+      // Hard kill after timeout — prevents blocking on long-running processes.
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill("SIGKILL");
+          resolve(`[timeout after ${TIMEOUT_MS / 1000}s] ${stdout.slice(0, 500) || stderr.slice(0, 500) || "command timed out"}`);
+        }
+      }, TIMEOUT_MS);
+
       proc.on("close", (code) => {
-        if (code === 0) resolve(stdout || "(no output)");
-        else resolve(`[exit ${code}] ${stderr || stdout || "command failed"}`);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          if (code === 0) resolve(stdout || "(no output)");
+          else resolve(`[exit ${code}] ${stderr || stdout || "command failed"}`);
+        }
       });
-      proc.on("error", (err) => resolve(`[error] ${err.message}`));
+      proc.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(`[error] ${err.message}`);
+        }
+      });
     });
   },
 };

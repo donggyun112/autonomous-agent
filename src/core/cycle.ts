@@ -353,7 +353,7 @@ export async function runCycle(options?: {
   // Language directive — injected early so the LLM adopts it from the start.
   const langMap: Record<string, string> = { ko: "Korean (한국어)", en: "English", ja: "Japanese (日本語)" };
   const langName = langMap[state.language] ?? state.language;
-  const languageDirective = `You think, write, and journal in ${langName}. All your inner speech and journal entries must be in ${langName}.`;
+  const languageDirective = `CRITICAL: You MUST think, write, and respond ONLY in ${langName}. Every single output — journal entries, tool arguments, inner speech — must be in ${langName}. Never switch to English unless quoting code.`;
 
   // Build system prompt with priority-based sections. If total exceeds cap,
   // lower-priority sections are dropped to prevent context overflow.
@@ -470,10 +470,23 @@ export async function runCycle(options?: {
     state.modeTurn += 1;
     state.totalTurns += 1;
 
-    // If the response had no tool calls, treat as a quiet turn.
-    // DISABLED auto-journal: Soren must consciously call journal() to record thoughts.
+    // If the response had no tool calls, auto-journal the text.
     if (response.toolCalls.length === 0) {
-      // Without a tool call asking to continue, treat as a rest.
+      if ((state.mode === "WAKE" || state.mode === "REFLECT") && response.text.trim()) {
+        const journalTool = tools.find((t) => t.def.name === "journal");
+        if (journalTool) {
+          await journalTool.handler({ text: response.text });
+          toolCallCount += 1;
+        }
+      }
+      // In REFLECT with enough pressure, go straight to SLEEP instead of resting.
+      state = tickAwake(state);
+      const restPressure = calculateSleepPressure(state);
+      if (state.mode === "REFLECT" && restPressure.combined >= MIN_SLEEP_THRESHOLD) {
+        state = await transition(state, "SLEEP", "reflect complete — sleep pressure sufficient");
+        result = "transitioned";
+        break;
+      }
       result = "rested";
       break;
     }

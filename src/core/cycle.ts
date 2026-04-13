@@ -347,6 +347,7 @@ export async function runCycle(options?: {
     "---", "## who you currently believe you are", "", whoAmI,
     driftSection, pressureNote,
     "---", `## you are currently in state: ${state.mode}`, "", modePrompt,
+    `Extended tools (load via more_tools): journal_search, check_continuity, review_actions, wiki_lint, write_letter, molt_stage, summon, schedule_wake, session_search, insights, deep_search, checkpoint`,
     "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
   ];
 
@@ -420,6 +421,7 @@ export async function runCycle(options?: {
 
   let toolCallCount = 0;
   let result: CycleResult["reason"] = "turn_budget";
+  const recentCalls: Array<{ name: string; inputKey: string }> = [];
 
   for (let turn = 0; turn < maxTurns; turn++) {
     // Periodic forced-sleep check inside the turn loop. Without this,
@@ -576,6 +578,21 @@ export async function runCycle(options?: {
         tool_use_id: call.id,
         content: out,
       });
+
+      // Loop detection: track recent tool calls and nudge if stuck.
+      const inputKey = JSON.stringify(call.input).slice(0, 100);
+      recentCalls.push({ name: call.name, inputKey });
+      if (recentCalls.length >= 3) {
+        const last3 = recentCalls.slice(-3);
+        if (last3.every(c => c.name === call.name && c.inputKey === last3[0].inputKey)) {
+          const nudge: Message = {
+            role: "user",
+            content: `[loop detected] You called ${call.name} with the same arguments 3 times. Try a different approach.`,
+          };
+          messages.push(nudge);
+          await appendMessage(nudge);
+        }
+      }
     }
 
     const toolResultMsg: Message = { role: "user", content: toolResults };

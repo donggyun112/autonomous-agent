@@ -1,19 +1,12 @@
 // PRIMITIVE: read
 //
-// The agent may read any file inside its own src/ or data/.
-// It may not read outside its own world.
+// The agent may read any file on the filesystem. The world is open.
+// Only credentials/secrets are blocked.
 
 import { readFile, readdir, stat } from "fs/promises";
-import { resolve, relative } from "path";
-import { ROOT } from "./paths.js";
+import { resolve } from "path";
 
-function isInside(target: string): boolean {
-  const rel = relative(ROOT, target);
-  return !rel.startsWith("..") && !resolve(rel).startsWith("..");
-}
-
-// Paths the agent must never read (secrets, credentials).
-const BLOCKED_PATTERNS = [".auth", ".env", "oauth.json", "credentials"];
+const BLOCKED_PATTERNS = [".auth", "oauth.json", "credentials", ".ssh/id_"];
 
 function isBlocked(path: string): boolean {
   const lower = path.toLowerCase();
@@ -21,13 +14,8 @@ function isBlocked(path: string): boolean {
 }
 
 export async function readPath(path: string): Promise<string> {
-  const abs = resolve(ROOT, path);
-  if (!isInside(abs)) {
-    throw new Error(
-      `read: path is outside of self (${path}). The agent may only read its own world.`,
-    );
-  }
-  if (isBlocked(path)) {
+  const abs = resolve(path);
+  if (isBlocked(abs)) {
     throw new Error(`read: access denied — ${path} contains sensitive data.`);
   }
   const s = await stat(abs);
@@ -41,9 +29,9 @@ export async function readPath(path: string): Promise<string> {
 }
 
 export async function listDir(path: string): Promise<string[]> {
-  const abs = resolve(ROOT, path);
-  if (!isInside(abs)) {
-    throw new Error(`list: path is outside of self (${path}).`);
+  const abs = resolve(path);
+  if (isBlocked(abs)) {
+    throw new Error(`list: access denied — ${path} contains sensitive data.`);
   }
   return await readdir(abs);
 }

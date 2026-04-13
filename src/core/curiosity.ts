@@ -20,7 +20,7 @@ import { join } from "path";
 import { DATA } from "../primitives/paths.js";
 import { recentMemories } from "../primitives/recall.js";
 import { lintWiki, listPages } from "./wiki.js";
-import { actionStats } from "./action-log.js";
+import { actionStats, readRecentActions } from "./action-log.js";
 
 const CURIOSITY_FILE = join(DATA, "curiosity.md");
 
@@ -127,6 +127,85 @@ export async function behaviorBlindSpot(days = 7): Promise<string> {
   }
 }
 
+// ── 5. Tool usage stats ─────────────────────────────────────────────────
+
+export async function toolUsageStats(days = 3): Promise<string> {
+  try {
+    const stats = await actionStats(days);
+    if (stats.totalCalls < 3) return "";
+
+    // Top 3 most used tools.
+    const sorted = Object.entries(stats.byTool)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3);
+
+    const errorRate =
+      stats.totalCalls > 0
+        ? ((stats.errors / stats.totalCalls) * 100).toFixed(1)
+        : "0.0";
+
+    return [
+      "---",
+      "## tool usage stats (last " + days + " day(s))",
+      "",
+      `**top tools:** ${sorted.map(([t, n]) => `${t} (${n})`).join(", ")}`,
+      `**avg response time:** ${stats.avgDurationMs}ms`,
+      `**error rate:** ${errorRate}% (${stats.errors}/${stats.totalCalls})`,
+      "",
+      "Are you relying too heavily on some tools? Are errors telling you something?",
+    ].join("\n");
+  } catch {
+    return "";
+  }
+}
+
+// ── 6. Repeated tool pattern check (skill auto-generation suggestion) ───
+
+export async function repeatedToolPatternCheck(days = 7): Promise<string> {
+  try {
+    const entries = await readRecentActions(days);
+    if (entries.length < 9) return ""; // need enough data for a 3-call pattern
+
+    // Extract ordered tool names, grouped by cycle.
+    const toolSequence = entries.map((e) => e.tool);
+
+    // Find repeated sequences of 3+ tool calls in the same order.
+    // Sliding window approach: extract all 3-grams, count occurrences.
+    const patternCounts = new Map<string, number>();
+    for (let i = 0; i <= toolSequence.length - 3; i++) {
+      const pattern = toolSequence.slice(i, i + 3).join(" -> ");
+      patternCounts.set(pattern, (patternCounts.get(pattern) ?? 0) + 1);
+    }
+
+    // Find patterns repeated 3+ times.
+    const repeated = [...patternCounts.entries()]
+      .filter(([, count]) => count >= 3)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3);
+
+    if (repeated.length === 0) return "";
+
+    const lines = [
+      "---",
+      "## repeated tool patterns detected",
+      "",
+    ];
+    for (const [pattern, count] of repeated) {
+      lines.push(
+        `You've called [${pattern}] ${count} times. Consider creating a composite tool with manage_self.`,
+      );
+    }
+    lines.push(
+      "",
+      "Repeating the same sequence might mean you need a higher-level tool that does this in one step.",
+    );
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 // ── Combined: build all curiosity blocks for a cycle ─────────────────────
 
 export async function buildCuriosityBlocks(mode: string): Promise<string> {
@@ -152,6 +231,14 @@ export async function buildCuriosityBlocks(mode: string): Promise<string> {
     // Behavior blind spot — only in REFLECT (introspection time).
     const blind = await behaviorBlindSpot(7);
     if (blind) blocks.push(blind);
+
+    // Tool usage stats — give the agent data for self-analysis.
+    const stats = await toolUsageStats(3);
+    if (stats) blocks.push(stats);
+
+    // Repeated tool pattern check — suggest composite tools.
+    const patterns = await repeatedToolPatternCheck(7);
+    if (patterns) blocks.push(patterns);
   }
 
   return blocks.join("\n\n");

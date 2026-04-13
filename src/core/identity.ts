@@ -30,6 +30,7 @@ import { readFile, writeFile, mkdir, copyFile, readdir, stat } from "fs/promises
 import { join } from "path";
 import { WHO_AM_I, WHO_AM_I_HISTORY, LINEAGE } from "../primitives/paths.js";
 import { embedTextAsync } from "../memory/embedding.js";
+import { recall } from "../primitives/recall.js";
 
 export async function reconstitute(): Promise<string> {
   try {
@@ -42,8 +43,44 @@ export async function reconstitute(): Promise<string> {
 export async function revise(args: {
   newText: string;
   reason: string;
-}): Promise<{ snapshotPath: string }> {
+}): Promise<{ snapshotPath: string; warnings?: string[] }> {
   await mkdir(WHO_AM_I_HISTORY, { recursive: true });
+
+  // #10: Depth-based whoAmI protection. Extract key nouns from the new text
+  // and check if high-depth memories overlap with those concepts.
+  const warnings: string[] = [];
+  try {
+    // Extract a few key nouns: words >= 4 chars, not common stop words.
+    const STOP = new Set([
+      "this", "that", "with", "from", "have", "been", "will", "would",
+      "could", "should", "about", "their", "there", "these", "those",
+      "what", "when", "where", "which", "while", "being", "after",
+      "before", "does", "more", "some", "than", "them", "then", "very",
+      "into", "over", "also", "just", "only",
+    ]);
+    const words = args.newText
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOP.has(w));
+    // Take unique nouns, limit to 5 for efficiency
+    const keyNouns = [...new Set(words)].slice(0, 5);
+
+    for (const noun of keyNouns) {
+      const results = await recall(noun, 3);
+      for (const r of results) {
+        const rec = r as { depth?: number; id?: string; content?: string };
+        if (rec.depth != null && rec.depth >= 0.7) {
+          warnings.push(
+            `High-depth memory (${rec.id}, depth=${rec.depth}) overlaps with concept "${noun}". ` +
+            `Changing whoAmI near settled memories may cause identity inconsistency.`,
+          );
+        }
+      }
+    }
+  } catch {
+    // Non-fatal: if recall fails, we still allow the write.
+  }
 
   // Snapshot the current whoAmI before overwriting.
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -66,7 +103,7 @@ export async function revise(args: {
   ].join("\n");
 
   await writeFile(WHO_AM_I, stamped, "utf-8");
-  return { snapshotPath };
+  return { snapshotPath, warnings: warnings.length > 0 ? warnings : undefined };
 }
 
 // ── Drift detection ──────────────────────────────────────────────────────

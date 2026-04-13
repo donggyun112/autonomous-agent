@@ -29,6 +29,8 @@ export type AgentState = {
   wakeAfter: number;
   // What the agent said to itself when last transitioning. Recorded so the next mode begins with intent.
   lastTransitionReason: string;
+  // Language the agent thinks and writes in. Set at init, changeable later.
+  language: string;
   // The seed name the user gave when initializing. The agent may change this later via journal/whoAmI.
   seedName: string;
   // Total LLM tokens used since birth. Honest cost record.
@@ -43,7 +45,12 @@ export type AgentState = {
   // cycle, then updates this stamp.
   awakeSince: number;
   // Total number of SLEEP cycles completed since birth. Lineage marker.
+  // This is also the agent's "day counter" — each sleep is one day boundary.
   sleepCount: number;
+  // Total LLM turns since birth. The agent's finest time grain — each turn is one "moment".
+  totalTurns: number;
+  // Epoch ms when the agent was first initialized. Immutable after birth.
+  bornAt: number;
 
   // ── Wake intention (self-continuity across sleep) ─────────
   // When the agent transitions to SLEEP, it may record WHY it wants to
@@ -61,11 +68,14 @@ const DEFAULT_STATE: AgentState = {
   lastTransition: 0,
   wakeAfter: 0,
   lastTransitionReason: "born",
+  language: "ko",
   seedName: "",
   tokensUsed: { input: 0, output: 0 },
   awakeMs: 0,
   awakeSince: 0,
   sleepCount: 0,
+  totalTurns: 0,
+  bornAt: 0,
   wakeIntention: undefined,
   wakeContext: undefined,
 };

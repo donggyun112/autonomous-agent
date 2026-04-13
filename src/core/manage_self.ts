@@ -24,6 +24,7 @@ import {
 } from "fs/promises";
 import { dirname, join, relative, resolve } from "path";
 import { DATA, ROOT, SRC } from "../primitives/paths.js";
+import { scanExtensionCode } from "./security.js";
 
 const BACKUP_DIR = join(DATA, ".backups");
 const CHANGELOG = join(DATA, ".changelog.md");
@@ -166,6 +167,17 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
       return `[error] find string not found in ${relative(ROOT, target)}. Did not patch.`;
     }
     const patched = content.replace(action.find, action.replace);
+    // Security scan on the patched result for tool scope.
+    if (action.scope === "tool") {
+      const scan = scanExtensionCode(patched);
+      if (!scan.safe) {
+        return [
+          `[error] patch rejected — dangerous patterns in result:`,
+          ...scan.threats.map((t) => `  • ${t}`),
+          `The agent may not write code containing these patterns.`,
+        ].join("\n");
+      }
+    }
     await mkdir(dirname(target), { recursive: true });
     const backupPath = await backup(target);
     await writeFile(target, patched, "utf-8");
@@ -201,6 +213,18 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
       await stat(target);
     } catch {
       return `[error] does not exist: ${relative(ROOT, target)}. Use create instead.`;
+    }
+  }
+
+  // For tool scope (TypeScript code), scan for dangerous patterns before writing.
+  if (action.scope === "tool") {
+    const scan = scanExtensionCode(action.content);
+    if (!scan.safe) {
+      return [
+        `[error] code rejected — dangerous patterns detected:`,
+        ...scan.threats.map((t) => `  • ${t}`),
+        `The agent may not write code containing these patterns.`,
+      ].join("\n");
     }
   }
 

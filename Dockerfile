@@ -29,7 +29,9 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 RUN apt-get update && apt-get install -y --no-install-recommends \
     docker.io \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global user.name "donggyun112" \
+    && git config --global user.email "ssddgg99@daum.net"
 
 WORKDIR /agent
 

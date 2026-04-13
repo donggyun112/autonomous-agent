@@ -56,7 +56,7 @@ import {
 } from "./state.js";
 import { readToday, readYesterday } from "../memory/journal.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
-import { toolsForMode, toolDefs, dispatchTool, resetActivatedTools, type Tool } from "./tools.js";
+import { toolsForMode, toolDefs, dispatchTool, resetActivatedTools, extendedToolNames, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
 import { resetTrace, saveTrace, startSpan, endSpan } from "./trace.js";
 import { enqueueFailed } from "./dead-letter.js";
@@ -347,7 +347,7 @@ export async function runCycle(options?: {
     "---", "## who you currently believe you are", "", whoAmI,
     driftSection, pressureNote,
     "---", `## you are currently in state: ${state.mode}`, "", modePrompt,
-    `Extended tools (load via more_tools): journal_search, check_continuity, review_actions, wiki_lint, write_letter, molt_stage, summon, schedule_wake, session_search, insights, deep_search, checkpoint`,
+    `Extended tools (load via more_tools): ${extendedToolNames().join(", ")}`,
     "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
   ];
 
@@ -580,7 +580,9 @@ export async function runCycle(options?: {
       });
 
       // Loop detection: track recent tool calls and nudge if stuck.
-      const inputKey = JSON.stringify(call.input).slice(0, 100);
+      // Use hash of full input for accurate comparison (avoids false positives on long inputs).
+      const fullInput = JSON.stringify(call.input);
+      const inputKey = fullInput.length <= 200 ? fullInput : fullInput.slice(0, 100) + "|" + fullInput.length + "|" + fullInput.slice(-100);
       recentCalls.push({ name: call.name, inputKey });
       if (recentCalls.length >= 3) {
         const last3 = recentCalls.slice(-3);

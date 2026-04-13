@@ -22,8 +22,8 @@
 //   Control:        transition, rest
 //
 
-import { mkdir, writeFile } from "fs/promises";
-import { join } from "path";
+import { mkdir, readdir, readFile as fsReadFile, writeFile } from "fs/promises";
+import { join, relative, resolve } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
 import { appendThought, readRecent, readToday, searchJournal } from "../memory/journal.js";
 import { readPath } from "../primitives/read.js";
@@ -61,7 +61,7 @@ import {
   shallowMemories,
   dream,
 } from "../primitives/recall.js";
-import { DATA } from "../primitives/paths.js";
+import { DATA, ROOT, SRC } from "../primitives/paths.js";
 import { searchSessions } from "./session-store.js";
 import { manageSelf, type ManageSelfAction } from "./manage_self.js";
 import {
@@ -143,6 +143,7 @@ const journal: Tool = {
         },
       },
       required: ["text"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -160,7 +161,7 @@ const recallSelf: Tool = {
     name: "recall_self",
     description:
       "Read your current whoAmI.md — who you believe you are.",
-    input_schema: { type: "object", properties: {} },
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   handler: async () => reconstitute(),
 };
@@ -178,6 +179,7 @@ const recallMemory: Tool = {
         top_k: { type: "number" },
       },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -248,6 +250,7 @@ const recallRecentJournal: Tool = {
       properties: {
         days: { type: "number", description: "How many days back. Default 3." },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -272,6 +275,7 @@ const journalSearchTool: Tool = {
         },
       },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -309,6 +313,7 @@ const updateWhoAmI: Tool = {
         },
       },
       required: ["new_text", "reason"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -335,6 +340,7 @@ const scanRecent: Tool = {
     input_schema: {
       type: "object",
       properties: { limit: { type: "number" } },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -362,6 +368,7 @@ const dreamMemory: Tool = {
         },
       },
       required: ["memory_id", "compressed"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -394,6 +401,7 @@ const readFileTool: Tool = {
         },
       },
       required: ["path"],
+      additionalProperties: false,
     },
   },
   // Large cap but not Infinity — Infinity would let a single read of
@@ -434,6 +442,7 @@ const reviewActionsTool: Tool = {
           description: "If true, return summary stats (tool counts, error rate, avg duration) instead of raw entries. Good for a quick overview.",
         },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -464,6 +473,7 @@ const saveCuriosityTool: Tool = {
         question: { type: "string", description: "The question, in your own voice." },
       },
       required: ["question"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -508,6 +518,7 @@ const webSearchTool: Tool = {
         },
       },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   maxOutputChars: 12000,
@@ -553,6 +564,7 @@ const askUserTool: Tool = {
         },
       },
       required: ["question", "reason"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -580,6 +592,7 @@ const checkInboxTool: Tool = {
             "If true, include already-read messages. Default: false (unread only).",
         },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -618,6 +631,7 @@ const writeLetterTool: Tool = {
         },
       },
       required: ["text"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -645,6 +659,7 @@ const wikiListTool: Tool = {
           description: "Optional filter. Omit to see everything.",
         },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -679,6 +694,7 @@ const wikiReadTool: Tool = {
         },
       },
       required: ["slug"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -715,6 +731,7 @@ const wikiLintTool: Tool = {
           description: "Threshold for stale detection (default 30).",
         },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -764,6 +781,7 @@ const wikiUpdateTool: Tool = {
         },
       },
       required: ["slug", "title", "body", "reason"],
+      additionalProperties: false,
     },
   },
   maxOutputChars: 3000,
@@ -818,6 +836,7 @@ const checkContinuity: Tool = {
             "Which prior snapshot to compare against. earliest = your origin. previous = your last revision. midway = your past midway-self.",
         },
       },
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -837,7 +856,7 @@ const manageSelfTool: Tool = {
   def: {
     name: "manage_self",
     description:
-      "Create/update/patch files in extensions/ (tools, subagents, rituals, state-prompts). Auto-backed up.",
+      "Modify your own extensions. Usage:\n- kind=list_scopes: see available scopes\n- kind=list, scope=X: list files in a scope\n- kind=create, scope=X, name=Y, content=Z, reason=R: create new extension\n- kind=update: overwrite existing file\n- kind=patch, scope=X, name=Y, find=F, replace=R, reason=R: surgical edit\n- Cannot modify src/core/ — use molt for core changes",
     input_schema: {
       type: "object",
       properties: {
@@ -872,6 +891,7 @@ const manageSelfTool: Tool = {
         },
       },
       required: ["kind"],
+      additionalProperties: false,
     },
   },
   // Larger cap because rituals/sub-agents can be long markdown.
@@ -952,6 +972,7 @@ const moltStageTool: Tool = {
               content: { type: "string" },
             },
             required: ["rel_path", "content"],
+            additionalProperties: false,
           },
         },
         from_generation: {
@@ -961,6 +982,7 @@ const moltStageTool: Tool = {
         },
       },
       required: ["reason"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -985,6 +1007,7 @@ const moltTestTool: Tool = {
         generation_id: { type: "string" },
       },
       required: ["generation_id"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1024,6 +1047,7 @@ const moltSwapTool: Tool = {
         reason: { type: "string" },
       },
       required: ["generation_id", "reason"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1041,7 +1065,7 @@ const transitionTool: Tool = {
   def: {
     name: "transition",
     description:
-      "Change state. WAKE→REFLECT→SLEEP→WAKE. Sleep requires pressure ≥ 0.15. Record wake_intention before sleeping.",
+      "Change state. Legal transitions: WAKE→REFLECT, REFLECT→SLEEP, SLEEP→WAKE. WAKE→SLEEP allowed when forced.\n- Sleep requires pressure ≥ 0.2 and homeostatic ≥ 0.05\n- Before SLEEP: record wake_intention (note to future self) and wake_context (what you were thinking)\n- If sleep rejected, questioner will challenge you to act",
     input_schema: {
       type: "object",
       properties: {
@@ -1062,6 +1086,7 @@ const transitionTool: Tool = {
         },
       },
       required: ["to", "reason"],
+      additionalProperties: false,
     },
   },
   handler: async () => {
@@ -1095,6 +1120,7 @@ const summonTool: Tool = {
         },
       },
       required: ["name", "message"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1112,7 +1138,7 @@ const listSubAgentsTool: Tool = {
     name: "list_subagents",
     description:
       "List available sub-agents (inner voices) you have created. Shows name and description for each.",
-    input_schema: { type: "object", properties: {} },
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   handler: async () => {
     const agents = await listSubAgents();
@@ -1150,6 +1176,7 @@ const summonAsyncTool: Tool = {
         },
       },
       required: ["name", "message"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1180,6 +1207,7 @@ const checkSummonTool: Tool = {
         },
       },
       required: ["name"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1236,9 +1264,11 @@ const scheduleWakeTool: Tool = {
             },
           },
           required: ["type"],
+          additionalProperties: false,
         },
       },
       required: ["when", "intention"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1302,6 +1332,7 @@ const cancelWakeTool: Tool = {
         id: { type: "string", description: "Wake ID to cancel." },
       },
       required: ["id"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1314,7 +1345,7 @@ const listWakesTool: Tool = {
   def: {
     name: "list_wakes",
     description: "List all scheduled future wakes with their intentions and fire times.",
-    input_schema: { type: "object", properties: {} },
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   handler: async () => {
     const wakes = await listWakes();
@@ -1342,6 +1373,7 @@ const sessionSearchTool: Tool = {
         },
       },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {
@@ -1365,9 +1397,142 @@ const finishMode: Tool = {
     input_schema: {
       type: "object",
       properties: {},
+      additionalProperties: false,
     },
   },
   handler: async () => "REST_REQUESTED",
+};
+
+// ── Find files (glob-like search) ──────────────────────────────────────
+
+async function walkDir(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  let entries;
+  try { entries = await readdir(dir, { withFileTypes: true }); } catch { return results; }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) { results.push(...(await walkDir(full))); } else { results.push(full); }
+  }
+  return results;
+}
+
+function matchPattern(filename: string, pattern: string): boolean {
+  if (filename === pattern) return true;
+  if (pattern.startsWith("*.") || pattern.startsWith("*")) return filename.endsWith(pattern.slice(1));
+  if (pattern.endsWith("*")) return filename.startsWith(pattern.slice(0, -1));
+  return filename.includes(pattern);
+}
+
+const findFilesTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "find_files",
+    description: "Find files matching a pattern in data/ or src/.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "File pattern (e.g. '*.md', '*.ts', 'day-*.md')" },
+        path: { type: "string", description: "Directory to search in. Default: project root. Must be within data/ or src/." },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const pattern = String(input.pattern ?? "").trim();
+    if (!pattern) return "[error] pattern is required";
+    const requestedPath = typeof input.path === "string" ? input.path.trim() : "";
+    const dataDir = DATA;
+    const srcDir = SRC;
+    let searchDirs: string[];
+    if (requestedPath) {
+      const abs = resolve(ROOT, requestedPath);
+      if (!abs.startsWith(dataDir) && !abs.startsWith(srcDir)) return `[error] path must be within data/ or src/. Got: ${requestedPath}`;
+      searchDirs = [abs];
+    } else {
+      searchDirs = [dataDir, srcDir];
+    }
+    const matches: string[] = [];
+    for (const dir of searchDirs) {
+      const files = await walkDir(dir);
+      for (const f of files) {
+        const basename = f.split("/").pop() ?? "";
+        if (matchPattern(basename, pattern)) matches.push(relative(ROOT, f));
+      }
+    }
+    if (matches.length === 0) return `(no files matching "${pattern}")`;
+    const capped = matches.slice(0, 200);
+    const suffix = matches.length > 200 ? `\n...(${matches.length - 200} more)` : "";
+    return capped.join("\n") + suffix;
+  },
+};
+
+// ── Todo / Plan tracking ───────────────────────────────────────────────
+
+const TODOS_FILE = join(DATA, "todos.json");
+type TodoItem = { id: string; text: string; status: "pending" | "done"; createdAt: string };
+
+async function loadTodos(): Promise<TodoItem[]> {
+  try { const raw = await fsReadFile(TODOS_FILE, "utf-8"); return JSON.parse(raw) as TodoItem[]; } catch { return []; }
+}
+
+async function saveTodos(todos: TodoItem[]): Promise<void> {
+  await mkdir(DATA, { recursive: true });
+  await writeFile(TODOS_FILE, JSON.stringify(todos, null, 2), "utf-8");
+}
+
+const todoTool: Tool = {
+  states: ["WAKE", "REFLECT"],
+  def: {
+    name: "todo",
+    description: "Track multi-step plans. action='list' shows current items. action='add' creates one. action='done' marks complete. action='clear' removes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "add", "done", "clear"] },
+        text: { type: "string", description: "For add: the todo text" },
+        id: { type: "string", description: "For done/clear: item ID" },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    },
+  },
+  handler: async (input) => {
+    const action = String(input.action ?? "");
+    const todos = await loadTodos();
+    if (action === "list") {
+      if (todos.length === 0) return "(no todos)";
+      return todos.map((t) => `[${t.status === "done" ? "x" : " "}] ${t.id}: ${t.text} (${t.createdAt})`).join("\n");
+    }
+    if (action === "add") {
+      const text = String(input.text ?? "").trim();
+      if (!text) return "[error] text is required for add";
+      const id = `todo-${Date.now().toString(36)}`;
+      const item: TodoItem = { id, text, status: "pending", createdAt: new Date().toISOString() };
+      todos.push(item);
+      await saveTodos(todos);
+      return `added: ${id} — ${text}`;
+    }
+    if (action === "done") {
+      const id = String(input.id ?? "").trim();
+      if (!id) return "[error] id is required for done";
+      const item = todos.find((t) => t.id === id);
+      if (!item) return `[error] todo not found: ${id}`;
+      item.status = "done";
+      await saveTodos(todos);
+      return `marked done: ${id}`;
+    }
+    if (action === "clear") {
+      const id = String(input.id ?? "").trim();
+      if (!id) return "[error] id is required for clear";
+      const idx = todos.findIndex((t) => t.id === id);
+      if (idx === -1) return `[error] todo not found: ${id}`;
+      todos.splice(idx, 1);
+      await saveTodos(todos);
+      return `removed: ${id}`;
+    }
+    return `[error] unknown action: ${action}`;
+  },
 };
 
 // ── Registry ────────────────────────────────────────────────────────────
@@ -1388,6 +1553,8 @@ const CORE_TOOLS: Tool[] = [
   checkInboxTool,
   manageSelfTool,
   saveCuriosityTool,
+  findFilesTool,
+  todoTool,
   transitionTool,
   finishMode,
 ];
@@ -1415,17 +1582,17 @@ const EXTENDED_TOOLS: Tool[] = [
   sessionSearchTool,
   {
     states: ["REFLECT"],
-    def: { name: "review_scores", description: "Review self-improvement scores across cycles. Shows trend.", input_schema: { type: "object", properties: { last_n: { type: "number" } } } },
+    def: { name: "review_scores", description: "Review self-improvement scores across cycles. Shows trend.", input_schema: { type: "object", properties: { last_n: { type: "number" } }, additionalProperties: false } },
     handler: async (input) => JSON.stringify(await getScoreTrend(typeof input.last_n === "number" ? input.last_n : 10), null, 2),
   } as Tool,
   {
     states: ["REFLECT"],
-    def: { name: "insights", description: "Analytics: tool frequency, error rate, wiki growth, activity trend.", input_schema: { type: "object", properties: { days: { type: "number" } } } },
+    def: { name: "insights", description: "Analytics: tool frequency, error rate, wiki growth, activity trend.", input_schema: { type: "object", properties: { days: { type: "number" } }, additionalProperties: false } },
     handler: async (input) => JSON.stringify(await generateInsights(typeof input.days === "number" ? input.days : 7), null, 2),
   } as Tool,
   {
     states: ["WAKE", "REFLECT"],
-    def: { name: "deep_search", description: "Search across both journal AND session archives. Unified results.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+    def: { name: "deep_search", description: "Search across both journal AND session archives. Unified results.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } },
     handler: async (input) => {
       const q = String(input.query ?? "").trim();
       if (!q) return "[error] query required";
@@ -1438,7 +1605,7 @@ const EXTENDED_TOOLS: Tool[] = [
   } as Tool,
   {
     states: ["WAKE", "REFLECT"],
-    def: { name: "retry_failed", description: "View/clear failed tool calls from the dead-letter queue.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "clear"] }, id: { type: "string" } } } },
+    def: { name: "retry_failed", description: "View/clear failed tool calls from the dead-letter queue.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "clear"] }, id: { type: "string" } }, additionalProperties: false } },
     handler: async (input) => {
       if (input.action === "clear" && typeof input.id === "string") return (await clearDeadLetterEntry(input.id)) ? "cleared." : "[error] not found";
       const e = await peekDeadLetter(20);
@@ -1447,7 +1614,7 @@ const EXTENDED_TOOLS: Tool[] = [
   } as Tool,
   {
     states: ["WAKE", "REFLECT"],
-    def: { name: "summon_by_capability", description: "Find and summon a sub-agent by capability description, not name.", input_schema: { type: "object", properties: { capability: { type: "string" }, message: { type: "string" }, context: { type: "string" } }, required: ["capability", "message"] } },
+    def: { name: "summon_by_capability", description: "Find and summon a sub-agent by capability description, not name.", input_schema: { type: "object", properties: { capability: { type: "string" }, message: { type: "string" }, context: { type: "string" } }, required: ["capability", "message"], additionalProperties: false } },
     handler: async (input) => {
       const def = await findSubAgentByCapability(String(input.capability ?? ""));
       if (!def) {
@@ -1465,7 +1632,7 @@ const EXTENDED_TOOLS: Tool[] = [
     def: {
       name: "checkpoint",
       description: "Save, list, or rewind session checkpoints.",
-      input_schema: { type: "object", properties: { action: { type: "string", enum: ["save", "list", "rewind"] }, checkpoint_id: { type: "string" } }, required: ["action"] },
+      input_schema: { type: "object", properties: { action: { type: "string", enum: ["save", "list", "rewind"] }, checkpoint_id: { type: "string" } }, required: ["action"], additionalProperties: false },
     },
     handler: async (input) => {
       const { createCheckpoint, listCheckpoints, rewindToCheckpoint } = await import("./session-store.js");
@@ -1487,7 +1654,7 @@ const moreToolsTool: Tool = {
   def: {
     name: "more_tools",
     description:
-      "You have additional tools beyond the ones shown. Call more_tools(action='list') to see all available extended tools. Call more_tools(action='activate', name='tool_name') to load one into this session. Activated tools stay available for the rest of this cycle.",
+      "Load extended tools on demand. action='list' shows all available. action='activate' loads one for this cycle. Extended tools include: journal_search, check_continuity, review_actions, scan_recent, dream, wiki_lint, write_letter, molt_stage/test/swap, summon, summon_async, schedule_wake, session_search, review_scores, insights, deep_search, retry_failed, summon_by_capability, checkpoint",
     input_schema: {
       type: "object",
       properties: {
@@ -1495,6 +1662,7 @@ const moreToolsTool: Tool = {
         name: { type: "string", description: "Tool name to activate (for action=activate)" },
       },
       required: ["action"],
+      additionalProperties: false,
     },
   },
   handler: async (input) => {

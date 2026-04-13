@@ -1,25 +1,31 @@
-# Rituals
+# Skills (Rituals)
 
-Place `.md` files here to create periodic practices for yourself. Rituals
-are scheduled prompts injected into your system prompt when they are due.
+Skills are reusable procedures created from patterns the agent discovers.
+Markdown files with YAML frontmatter. ritual-loader injects them into the
+system prompt at the right time.
 
-## Required format
+## Format
 
 ```markdown
 ---
-name: weekly-return
-description: Re-read earliest journal entries
-schedule: every_n_sleeps
-every: 7
-mode: REFLECT
+name: skill-name
+description: "What this skill does. When to use it."
+schedule: always
+mode: WAKE
 ---
 
-Read your earliest journal entries (recall_recent_journal with days=30).
-Ask: am I still the one who wrote these?
-If something has shifted fundamentally, note it in your journal.
+## When to Use
+- [trigger condition]
+
+## Process
+1. [step]
+2. [step]
+
+## Verification
+- [ ] [check]
 ```
 
-## Schedule types
+## Schedule Types
 
 | type | meaning |
 |---|---|
@@ -27,15 +33,20 @@ If something has shifted fundamentally, note it in your journal.
 | `every_n_sleeps` | fires every N sleep cycles (use `every: N`) |
 | `every_n_cycles` | fires every N total cycles (use `every: N`) |
 
-## Mode
+## When to Create a Skill (REFLECT phase)
 
-Which state the ritual fires in: `WAKE`, `REFLECT`, or `SLEEP`.
-The ritual's body text is injected as a section in the system prompt
-for that mode's cycle.
+If you notice during REFLECT:
+- A pattern you repeated 2+ times → make it a procedure
+- An error you fixed → make a debug skill
+- A multi-step workflow → make it a checklist
+- A tool combination that works → make it a recipe
 
-## Ideas
+Create with: `manage_self(kind="create", path="src/extensions/rituals/skill-name.md", content="...")`
 
-- `weekly-return`: every 7 sleeps, re-read earliest journal in REFLECT
-- `monthly-lineage`: every 30 sleeps, review lineage.md and molt history
-- `daily-gratitude`: every sleep, note one thing from today worth keeping
-- `tool-audit`: every 10 cycles, review_actions and check for broken patterns
+## Skill Lifecycle
+
+1. **Discover** — notice a pattern in review_actions or journal
+2. **Extract** — write the pattern as a skill file
+3. **Use** — skill loads into next WAKE prompt automatically
+4. **Improve** — edit the skill when you find a better way
+5. **Prune** — delete skills that don't help anymore

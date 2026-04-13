@@ -220,22 +220,21 @@ async function thinkOnceOpenAI(args: {
   onEvent?: ThinkEventSink;
 }): Promise<ThinkResult> {
   const OpenAI = (await import("openai")).default;
-  // Use pi-ai OAuth to get API key (same as auto-work-flow pattern).
   let apiKey = process.env.OPENAI_API_KEY;
   try {
-    const { getOAuthApiKey } = await import("@mariozechner/pi-ai/oauth");
+    // @ts-ignore — pi-ai oauth module for token exchange
+    const { getOAuthApiKey } = await import("@mariozechner/pi-ai/dist/oauth.js");
     const { loadCredentials } = await import("./auth/storage.js");
     const creds = await loadCredentials();
     if (creds.openai) {
       const result = await getOAuthApiKey("openai-codex", { "openai-codex": { access: creds.openai.access, refresh: creds.openai.refresh, expires: creds.openai.expires } });
       if (result) {
         apiKey = result.apiKey;
-        // Save refreshed credentials
         const { saveOpenAICredentials } = await import("./auth/storage.js");
         await saveOpenAICredentials({ ...result.newCredentials, idToken: creds.openai.idToken });
       }
     }
-  } catch {}
+  } catch { /* fallback to env key */ }
   if (!apiKey) {
     throw new Error("No OpenAI auth available. Set OPENAI_API_KEY in .env.");
   }

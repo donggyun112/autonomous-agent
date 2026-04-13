@@ -28,6 +28,7 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 # host's docker via the mounted socket.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     docker.io \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /agent

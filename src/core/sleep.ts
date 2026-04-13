@@ -45,6 +45,7 @@ import {
   lintWiki,
   listPages,
   readPage,
+  repairWiki,
   rebuildIndex,
   slugify,
   writePage,
@@ -488,16 +489,28 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "rebuild-index", message: (err as Error).message });
   }
 
-  // 5d. Lint the wiki. Findings are logged; the agent can read the wiki
+  // 5d. Normalize wiki references and backfill missing source links using
+  // local memory data, then rebuild the index if anything changed.
+  try {
+    const repair = await repairWiki({ sleepConsolidation: true });
+    report.wikiPagesTouched += repair.pagesTouched;
+    if (repair.pagesTouched > 0) {
+      await rebuildIndex();
+    }
+  } catch (err) {
+    report.errors.push({ step: "wiki-repair", message: (err as Error).message });
+  }
+
+  // 5e. Lint the wiki. Findings are logged; the agent can read the wiki
   // log later and decide whether to address them during REFLECT.
   try {
-    const lint = await lintWiki();
+    const lint = await lintWiki({ includeContradictions: false });
     report.wikiLintFindings = lint.findings.length;
   } catch (err) {
     report.errors.push({ step: "wiki-lint", message: (err as Error).message });
   }
 
-  // 5e. Generate a natural-language narrative summary of this sleep cycle.
+  // 5f. Generate a natural-language narrative summary of this sleep cycle.
   // The narrative is saved to data/last-sleep-narrative.md so the agent can
   // read "what happened while I slept" on next WAKE.
   try {
@@ -519,7 +532,7 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "sleep-narrative", message: (err as Error).message });
   }
 
-  // 5f. Compress recent session trajectories.
+  // 5g. Compress recent session trajectories.
   try {
     const { compressRecentTrajectories } = await import("./trajectory.js");
     await compressRecentTrajectories(3);

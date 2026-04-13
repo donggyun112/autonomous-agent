@@ -55,12 +55,60 @@ import {
   clearAnthropicCredentials,
   credentialsFilePath,
   loadCredentials,
+  type StoredCredentials,
   saveAnthropicCredentials,
 } from "./llm/auth/storage.js";
 import { resetAuthSource } from "./llm/auth/source.js";
 import { memoryStats } from "./primitives/recall.js";
 import { DATA, JOURNAL_DIR, LINEAGE, WHO_AM_I } from "./primitives/paths.js";
 import { createLiveObserver, printCycleSummary } from "./ui/observer.js";
+
+type RuntimeLlmProvider = "anthropic" | "openai";
+
+function getConfiguredProvider(): RuntimeLlmProvider {
+  return process.env.AGENT_LLM?.toLowerCase() === "openai" ? "openai" : "anthropic";
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (value && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
+
+function getConfiguredModel(provider: RuntimeLlmProvider = getConfiguredProvider()): string {
+  return provider === "openai"
+    ? (firstNonEmpty(process.env.AGENT_MODEL, process.env.OPENAI_MODEL) ?? "gpt-5.4-mini")
+    : (firstNonEmpty(process.env.AGENT_MODEL, process.env.ANTHROPIC_MODEL) ?? "claude-opus-4-6");
+}
+
+function hasOpenAIAuth(creds: StoredCredentials): boolean {
+  return !!process.env.OPENAI_API_KEY || !!creds.openai;
+}
+
+async function describeLlmAuth(
+  provider: RuntimeLlmProvider,
+  creds: StoredCredentials,
+): Promise<string> {
+  if (provider === "openai") {
+    if (creds.openai) {
+      return `OpenAI OAuth credentials present (expires ${new Date(creds.openai.expires).toISOString()})`;
+    }
+    if (process.env.OPENAI_API_KEY) {
+      return "$OPENAI_API_KEY (environment)";
+    }
+    return "missing OpenAI credentials — set OPENAI_API_KEY";
+  }
+
+  try {
+    const { getAuthSource } = await import("./llm/auth/source.js");
+    const source = await getAuthSource();
+    await source.getApiKey();
+    return source.describe();
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
 
 async function init(args: string[]): Promise<void> {
   // Parse --lang flag: `init <name> --lang ko`
@@ -249,7 +297,18 @@ async function logoutCmd(): Promise<void> {
 
 async function whoamiCmd(): Promise<void> {
   const creds = await loadCredentials();
-  if (creds.anthropic) {
+  const provider = getConfiguredProvider();
+  console.log(`provider: ${provider}`);
+  console.log(`model: ${getConfiguredModel(provider)}`);
+
+  if (provider === "openai" && creds.openai) {
+    console.log(`auth: OpenAI OAuth (expires ${new Date(creds.openai.expires).toISOString()})`);
+    console.log(`file: ${credentialsFilePath()}`);
+  } else if (provider === "openai" && process.env.OPENAI_API_KEY) {
+    console.log("auth: $OPENAI_API_KEY (environment)");
+  } else if (provider === "openai") {
+    console.log("auth: (none) — set OPENAI_API_KEY");
+  } else if (creds.anthropic) {
     console.log(`auth: Anthropic OAuth (expires ${new Date(creds.anthropic.expires).toISOString()})`);
     console.log(`file: ${credentialsFilePath()}`);
   } else if (process.env.ANTHROPIC_API_KEY) {
@@ -537,7 +596,18 @@ async function main(): Promise<void> {
       break;
     case "doctor": {
       console.log("── self-diagnostic ──");
-      try { const { getAuthSource } = await import("./llm/auth/source.js"); const s = await getAuthSource(); await s.getApiKey(); console.log("✓ auth: valid"); } catch (e) { console.log(`✗ auth: ${(e as Error).message}`); }
+      const creds = await loadCredentials();
+      const provider = getConfiguredProvider();
+      const authSummary = await describeLlmAuth(provider, creds);
+      console.log(`✓ llm provider: ${provider}`);
+      console.log(`✓ llm model: ${getConfiguredModel(provider)}`);
+      if (provider === "openai") {
+        console.log(hasOpenAIAuth(creds) ? `✓ auth: ${authSummary}` : `✗ auth: ${authSummary}`);
+      } else {
+        console.log(authSummary.startsWith("missing") || authSummary.startsWith("No ")
+          ? `✗ auth: ${authSummary}`
+          : `✓ auth: ${authSummary}`);
+      }
       console.log(existsSync(DATA) ? "✓ data/ exists" : "✗ data/ missing");
       try { await loadState(); console.log("✓ state.json parseable"); } catch { console.log("✗ state.json broken"); }
       console.log(existsSync(JOURNAL_DIR) ? "✓ journal/ exists" : "✗ journal/ missing");

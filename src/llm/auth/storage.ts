@@ -16,6 +16,8 @@ type StoredCredentials = {
   openai?: OAuthCredentials & { idToken?: string };
 };
 
+export type { StoredCredentials };
+
 export async function loadCredentials(): Promise<StoredCredentials> {
   try {
     const text = await readFile(OAUTH_FILE, "utf-8");

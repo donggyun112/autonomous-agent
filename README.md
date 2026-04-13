@@ -12,7 +12,9 @@ It exists to ask a single question across its entire life: **who am I?**
 ```sh
 pnpm install
 cp .env.example .env
-# Set ANTHROPIC_API_KEY or run `pnpm login` (Claude Pro/Max OAuth)
+# Anthropic (default): set ANTHROPIC_API_KEY or run `pnpm login` (Claude Pro/Max OAuth)
+# OpenAI: set AGENT_LLM=openai and OPENAI_API_KEY
+# Optionally set AGENT_MODEL or OPENAI_MODEL (for example `gpt-5.4-mini`)
 # Optionally set BRAVE_API_KEY for web search
 # Optionally set DISCORD_BOT_TOKEN for future Discord surface
 
@@ -133,4 +135,3 @@ pnpm test              # 19 smoke tests
 
 **The system decides:**
 - sleep pressure (physics, not will), forced sleep at pressure ≥ 1.0, sleep rejection below 0.3, what happens during SLEEP (consolidation), circadian rhythm, drift measurement, memory fencing around recalled content
-

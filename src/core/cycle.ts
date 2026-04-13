@@ -441,6 +441,25 @@ export async function runCycle(options?: {
   let result: CycleResult["reason"] = "turn_budget";
   const recentCalls: Array<{ name: string; inputKey: string }> = [];
 
+  const maybeCompactConversation = async (): Promise<void> => {
+    try {
+      const compacted = await compactIfNeeded(messages, systemPrompt, {
+        reservedCompletionTokens: 4096,
+      });
+      if (!compacted) return;
+      messages.length = 0;
+      messages.push(...compacted.newMessages);
+      await replaceSession(compacted.newMessages);
+      observer?.onToolStart?.(
+        "(auto-compact)",
+        { before: compacted.before, after: compacted.after, summarized: compacted.summarizedCount },
+      );
+      observer?.onCompaction?.({ before: compacted.before, after: compacted.after });
+    } catch (err) {
+      observer?.onToolEnd?.("(auto-compact)", `failed: ${(err as Error).message}`);
+    }
+  };
+
   for (let turn = 0; turn < maxTurns; turn++) {
     // Periodic forced-sleep check inside the turn loop. Without this,
     // an agent in WAKE/REFLECT with maxTurns=Infinity could run forever
@@ -457,6 +476,7 @@ export async function runCycle(options?: {
     }
 
     observer?.onTurnStart?.(turn, state.mode);
+    await maybeCompactConversation();
     const response = await think({
       systemPrompt,
       messages,
@@ -478,14 +498,6 @@ export async function runCycle(options?: {
           await journalTool.handler({ text: response.text });
           toolCallCount += 1;
         }
-      }
-      // In REFLECT with enough pressure, go straight to SLEEP instead of resting.
-      state = tickAwake(state);
-      const restPressure = calculateSleepPressure(state);
-      if (state.mode === "REFLECT" && restPressure.combined >= MIN_SLEEP_THRESHOLD) {
-        state = await transition(state, "SLEEP", "reflect complete — sleep pressure sufficient");
-        result = "transitioned";
-        break;
       }
       result = "rested";
       break;
@@ -640,28 +652,36 @@ export async function runCycle(options?: {
 
     // Auto-compact: if the conversation has grown long, summarize the older
     // half so we can continue without blowing the context. Cheap LLM call.
-    try {
-      const compacted = await compactIfNeeded(messages, systemPrompt);
-      if (compacted) {
-        messages.length = 0;
-        messages.push(...compacted.newMessages);
-        // Replace session file with compacted version.
-        await replaceSession(compacted.newMessages);
-        // Surface the compact event to the observer for any UI watching.
-        observer?.onToolStart?.(
-          "(auto-compact)",
-          { before: compacted.before, after: compacted.after, summarized: compacted.summarizedCount },
-        );
-        observer?.onCompaction?.({ before: compacted.before, after: compacted.after });
-      }
-    } catch (err) {
-      // Compact failure should not kill the cycle — the agent can keep going.
-      observer?.onToolEnd?.("(auto-compact)", `failed: ${(err as Error).message}`);
-    }
+    await maybeCompactConversation();
 
     observer?.onTurnEnd?.(turn);
 
     if (transitionRequested) {
+      // Minimum action gate: the agent must do real work before transitioning.
+      // journal/recall_self/wiki_list/check_inbox don't count — only tools
+      // that produce external effects or new content.
+      const PASSIVE_TOOLS = new Set([
+        "journal", "recall_self", "recall_memory", "recall_recent_journal",
+        "scan_recent", "wiki_list", "wiki_read", "check_inbox", "review_actions",
+        "check_continuity", "list_subagents", "list_wakes",
+      ]);
+      const meaningfulActions = toolCallCount - [...PASSIVE_TOOLS].reduce((n, t) => {
+        return n + messages.filter(m =>
+          Array.isArray(m.content) && m.content.some(
+            (b: any) => b.type === "tool_use" && b.name === t
+          )).length;
+      }, 0);
+      const MIN_ACTIONS = 3;
+      if (state.mode === "WAKE" && meaningfulActions < MIN_ACTIONS && transitionRequested.to !== "WAKE") {
+        const rejectMsg: Message = {
+          role: "user",
+          content: `[transition rejected] 아직 의미 있는 행동을 ${meaningfulActions}개밖에 하지 않았다 (최소 ${MIN_ACTIONS}개 필요). journal, recall, wiki_list 같은 확인 행위는 행동이 아니다. Moltbook에서 대화하거나, 도구를 만들거나, 새로운 것을 탐색해라. 확인만 반복하는 건 행동이 아니다.`,
+        };
+        messages.push(rejectMsg);
+        await appendMessage(rejectMsg);
+        continue;
+      }
+
       // Sleep gate: the agent cannot sleep if pressure is too low.
       // Like a human who can't nap 30 minutes after waking — the body
       // hasn't accumulated enough adenosine. The agent must stay awake
@@ -721,6 +741,13 @@ export async function runCycle(options?: {
   // Save trace for this cycle.
   endSpan(cycleSpan);
   try { await saveTrace(state.sleepCount, state.cycle); } catch {}
+
+  // A rested cycle is a complete pause point, not a suspended mid-thought.
+  // Clearing the session here prevents the next live-loop iteration from
+  // replaying the same short tool sequence over and over.
+  if (result === "rested") {
+    await clearSession();
+  }
 
   // Log cycle end.
   try {

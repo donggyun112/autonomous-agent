@@ -32,10 +32,14 @@ export async function appendThought(args: {
   text: string;
 }): Promise<{ file: string }> {
   await mkdir(JOURNAL_DIR, { recursive: true });
-  const day = await getCurrentDay();
+  const { loadState } = await import("../core/state.js");
+  const state = await loadState();
+  const day = state.sleepCount;
   const file = dayFile(day);
+  // Use agent-time coordinates: day + moment (totalTurns). Wall-clock ISO
+  // is preserved for debugging but agent-time is primary.
   const ts = new Date().toISOString();
-  const block = `\n## ${ts} · ${args.mode}\n\n${args.text.trim()}\n`;
+  const block = `\n## ${ts} · ${args.mode} · day ${day} moment ${state.totalTurns}\n\n${args.text.trim()}\n`;
   await appendFile(file, block, "utf-8");
   return { file };
 }

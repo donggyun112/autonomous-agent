@@ -57,6 +57,8 @@ import { readToday, readYesterday } from "../memory/journal.js";
 import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
 import { toolsForMode, toolDefs, dispatchTool, type Tool } from "./tools.js";
 import { logAction } from "./action-log.js";
+import { resetTrace, saveTrace, startSpan, endSpan } from "./trace.js";
+import { enqueueFailed } from "./dead-letter.js";
 import { compactIfNeeded, resetCompactionState } from "./compact.js";
 import { buildCuriosityBlocks } from "./curiosity.js";
 import { buildRitualBlock } from "./ritual-loader.js";
@@ -137,6 +139,10 @@ export async function runCycle(options?: {
   } catch {
     // logging must never crash the cycle
   }
+
+  // Reset trace for this cycle and start the root span.
+  resetTrace();
+  const cycleSpan = startSpan("cycle");
 
   // Tick the sleep clock first. This adds the wall-clock time elapsed since
   // the last cycle to awakeMs (only if the agent is currently awake/reflecting).
@@ -394,6 +400,20 @@ export async function runCycle(options?: {
   let result: CycleResult["reason"] = "turn_budget";
 
   for (let turn = 0; turn < maxTurns; turn++) {
+    // Periodic forced-sleep check inside the turn loop. Without this,
+    // an agent in WAKE/REFLECT with maxTurns=Infinity could run forever
+    // without the force threshold ever being evaluated.
+    if (turn > 0 && turn % 10 === 0 && state.mode !== "SLEEP") {
+      state = tickAwake(state);
+      const livePressure = calculateSleepPressure(state);
+      if (livePressure.combined >= FORCE_THRESHOLD) {
+        state = await transition(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
+        result = "transitioned";
+        await saveState(state);
+        break;
+      }
+    }
+
     observer?.onTurnStart?.(turn, state.mode);
     const response = await think({
       systemPrompt,
@@ -500,10 +520,18 @@ export async function runCycle(options?: {
       }
 
       observer?.onToolStart?.(call.name, call.input);
+      const toolSpan = startSpan(call.name, cycleSpan);
       const toolStart = Date.now();
-      const out = await dispatchTool(tools, call);
+      const { result: out, raw: rawOut } = await dispatchTool(tools, call);
       const toolDuration = Date.now() - toolStart;
-      observer?.onToolEnd?.(call.name, out);
+      endSpan(toolSpan, { duration: toolDuration });
+      // Observer sees full (raw) output; LLM gets capped version.
+      observer?.onToolEnd?.(call.name, rawOut);
+
+      // Dead-letter queue: failed tool calls queued for later retry.
+      if (out.startsWith("(tool error:")) {
+        try { await enqueueFailed({ tool: call.name, input: call.input, error: out, ts: new Date().toISOString() }); } catch {}
+      }
 
       // Action log — every tool call recorded for self-improvement analysis.
       // Hyperagents found agents spontaneously create this. We provide it.
@@ -514,7 +542,7 @@ export async function runCycle(options?: {
           mode: state.mode,
           tool: call.name,
           input_summary: JSON.stringify(call.input).slice(0, 200),
-          output_summary: out.slice(0, 200),
+          output_summary: rawOut.slice(0, 200),
           duration_ms: toolDuration,
           error: out.startsWith("(tool error:") ? out : undefined,
         });
@@ -598,6 +626,10 @@ export async function runCycle(options?: {
   }
 
   await saveState(state);
+
+  // Save trace for this cycle.
+  endSpan(cycleSpan);
+  try { await saveTrace(state.sleepCount, state.cycle); } catch {}
 
   // Log cycle end.
   try {

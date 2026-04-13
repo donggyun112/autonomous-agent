@@ -202,3 +202,46 @@ export async function searchSessions(
 
   return results;
 }
+
+// #5: Ranked multi-word session search.
+export async function searchSessionsRanked(query: string, limit = 20): Promise<Array<{ file: string; preview: string; score: number }>> {
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  if (words.length === 0) return [];
+  const basic = await searchSessions(query);
+  return basic.map(r => {
+    const lower = r.preview.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...r, score };
+  }).sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// #11: Session checkpoints.
+const SESSION_CHECKPOINT_DIR = join(DATA, "session-checkpoints");
+
+export async function createCheckpoint(): Promise<string> {
+  await mkdir(SESSION_CHECKPOINT_DIR, { recursive: true });
+  const ts = new Date().toISOString().replace(/:/g, "-");
+  try { await copyFile(SESSION_FILE, join(SESSION_CHECKPOINT_DIR, `${ts}.jsonl`)); } catch { /* ok */ }
+  return ts;
+}
+
+export async function listCheckpoints(): Promise<Array<{ id: string; messageCount: number; createdAt: string }>> {
+  try {
+    const files = (await readdir(SESSION_CHECKPOINT_DIR)).filter(f => f.endsWith(".jsonl")).sort();
+    const result: Array<{ id: string; messageCount: number; createdAt: string }> = [];
+    for (const f of files) {
+      const text = await readFile(join(SESSION_CHECKPOINT_DIR, f), "utf-8");
+      result.push({ id: f.replace(".jsonl", ""), messageCount: text.split("\n").filter(l => l.trim()).length, createdAt: f.replace(".jsonl", "") });
+    }
+    return result;
+  } catch { return []; }
+}
+
+export async function rewindToCheckpoint(id: string): Promise<boolean> {
+  try {
+    await copyFile(join(SESSION_CHECKPOINT_DIR, `${id}.jsonl`), SESSION_FILE);
+    const files = (await readdir(SESSION_CHECKPOINT_DIR)).filter(f => f.endsWith(".jsonl")).sort();
+    for (const f of files) { if (f > `${id}.jsonl`) await rm(join(SESSION_CHECKPOINT_DIR, f)); }
+    return true;
+  } catch { return false; }
+}

@@ -26,8 +26,13 @@ import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
 import { appendThought, readRecent, readToday, searchJournal } from "../memory/journal.js";
-import { extractKeys } from "../memory/keys.js";
 import { readPath } from "../primitives/read.js";
+import { getScoreTrend } from "./self-score.js";
+import { generateInsights } from "./insights.js";
+import { redact } from "./redaction.js";
+import { peekDeadLetter, clearDeadLetterEntry } from "./dead-letter.js";
+import { searchSessionsRanked } from "./session-store.js";
+import { findSubAgentByCapability } from "./subagent-loader.js";
 import { scanForInjection } from "./security.js";
 import { actionStats, readRecentActions } from "./action-log.js";
 import { saveCuriosityQuestion } from "./curiosity.js";
@@ -128,7 +133,7 @@ const journal: Tool = {
   def: {
     name: "journal",
     description:
-      "Write a thought to your journal. Use this freely while you are thinking. Each thought becomes a memory you may recall later. Do not narrate that you are writing — just write. You may optionally pass `keys` — a few search terms someone might later use to find this thought. If omitted, keys are extracted automatically from the text.",
+      "Write a thought to your journal. Use this freely while you are thinking. Each thought is recorded in today's daily log and will be ingested into your long-term memory during sleep. Do not narrate that you are writing — just write.",
     input_schema: {
       type: "object",
       properties: {
@@ -136,36 +141,16 @@ const journal: Tool = {
           type: "string",
           description: "The thought, in your own voice. Prose, not bullets.",
         },
-        keys: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "Optional search terms to index this thought under (3-6 words). If you know what this thought is about, pass the nouns. Otherwise leave blank and keys will be extracted.",
-        },
       },
       required: ["text"],
     },
   },
   handler: async (input) => {
-    const text = String(input.text ?? "");
-    if (!text.trim()) return "(empty thought ignored)";
+    const rawText = String(input.text ?? "");
+    if (!rawText.trim()) return "(empty thought ignored)";
+    const { text } = redact(rawText);
     const { file } = await appendThought({ mode: "WAKE", text });
-
-    // Resolve keys for metadata only — memory graph ingestion happens
-    // during SLEEP consolidation (batch), not on every journal write.
-    let keys: string[] = [];
-    const provided = input.keys;
-    if (Array.isArray(provided)) {
-      keys = provided.filter((k): k is string => typeof k === "string" && k.trim().length >= 2);
-    }
-    if (keys.length === 0) {
-      keys = extractKeys(text);
-    }
-    if (keys.length === 0) {
-      keys = ["thought"];
-    }
-
-    return `journaled to ${file} · keys: ${keys.join(", ")}`;
+    return `journaled to ${file}`;
   },
 };
 
@@ -1420,6 +1405,69 @@ const ALL_TOOLS: Tool[] = [
   cancelWakeTool,
   listWakesTool,
   sessionSearchTool,
+  // ── New tools (round 2) ──
+  {
+    states: ["REFLECT"],
+    def: { name: "review_scores", description: "Review self-improvement scores across cycles. Shows trend.", input_schema: { type: "object", properties: { last_n: { type: "number" } } } },
+    handler: async (input) => JSON.stringify(await getScoreTrend(typeof input.last_n === "number" ? input.last_n : 10), null, 2),
+  } as Tool,
+  {
+    states: ["REFLECT"],
+    def: { name: "insights", description: "Analytics: tool frequency, error rate, wiki growth, activity trend.", input_schema: { type: "object", properties: { days: { type: "number" } } } },
+    handler: async (input) => JSON.stringify(await generateInsights(typeof input.days === "number" ? input.days : 7), null, 2),
+  } as Tool,
+  {
+    states: ["WAKE", "REFLECT"],
+    def: { name: "deep_search", description: "Search across both journal AND session archives. Unified results.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+    handler: async (input) => {
+      const q = String(input.query ?? "").trim();
+      if (!q) return "[error] query required";
+      const [jr, sr] = await Promise.all([searchJournal(q), searchSessionsRanked(q, 10)]);
+      const p: string[] = [];
+      if (jr.length > 0) { p.push("## Journal"); for (const r of jr) { p.push(`### ${r.file}`); p.push(...r.matches); } }
+      if (sr.length > 0) { p.push("## Sessions"); for (const r of sr) p.push(`- [${r.file}] (${r.score}) ${r.preview}`); }
+      return p.length > 0 ? p.join("\n") : `(no results for "${q}")`;
+    },
+  } as Tool,
+  {
+    states: ["WAKE", "REFLECT"],
+    def: { name: "retry_failed", description: "View/clear failed tool calls from the dead-letter queue.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "clear"] }, id: { type: "string" } } } },
+    handler: async (input) => {
+      if (input.action === "clear" && typeof input.id === "string") return (await clearDeadLetterEntry(input.id)) ? "cleared." : "[error] not found";
+      const e = await peekDeadLetter(20);
+      return e.length === 0 ? "(no failed operations)" : JSON.stringify(e, null, 2);
+    },
+  } as Tool,
+  {
+    states: ["WAKE", "REFLECT"],
+    def: { name: "summon_by_capability", description: "Find and summon a sub-agent by capability description, not name.", input_schema: { type: "object", properties: { capability: { type: "string" }, message: { type: "string" }, context: { type: "string" } }, required: ["capability", "message"] } },
+    handler: async (input) => {
+      const def = await findSubAgentByCapability(String(input.capability ?? ""));
+      if (!def) {
+        const { listSubAgents } = await import("./subagent-loader.js");
+        const all = await listSubAgents();
+        return `[error] No match for "${input.capability}". Available:\n${all.map(a => `- ${a.name}: ${a.description}`).join("\n") || "(none)"}`;
+      }
+      const { summonSubAgent } = await import("./subagent-loader.js");
+      const r = await summonSubAgent({ name: def.name, message: String(input.message ?? ""), contextFromParent: typeof input.context === "string" ? input.context : undefined });
+      return `[${r.subAgentName}]: ${r.response}`;
+    },
+  } as Tool,
+  {
+    states: ["WAKE", "REFLECT"],
+    def: {
+      name: "checkpoint",
+      description: "Save, list, or rewind session checkpoints.",
+      input_schema: { type: "object", properties: { action: { type: "string", enum: ["save", "list", "rewind"] }, checkpoint_id: { type: "string" } }, required: ["action"] },
+    },
+    handler: async (input) => {
+      const { createCheckpoint, listCheckpoints, rewindToCheckpoint } = await import("./session-store.js");
+      if (input.action === "save") return `checkpoint saved: ${await createCheckpoint()}`;
+      if (input.action === "list") { const c = await listCheckpoints(); return c.length === 0 ? "(none)" : c.map(x => `- ${x.id} (${x.messageCount} msgs)`).join("\n"); }
+      if (input.action === "rewind" && typeof input.checkpoint_id === "string") return (await rewindToCheckpoint(input.checkpoint_id)) ? `rewound to ${input.checkpoint_id}` : "[error] not found";
+      return "[error] unknown action";
+    },
+  } as Tool,
   transitionTool,
   finishMode,
 ];
@@ -1464,16 +1512,19 @@ export function isToolPreserved(name: string): boolean {
   return tool?.preserveOnCompact === true;
 }
 
+// Returns both the raw (full) tool output and the capped version for the LLM.
+// The observer should display `raw`; the LLM message should use `result`.
 export async function dispatchTool(
   tools: Tool[],
   call: ToolCall,
-): Promise<string> {
+): Promise<{ result: string; raw: string }> {
   const tool = tools.find((t) => t.def.name === call.name);
   if (!tool) {
-    return `(unknown tool: ${call.name})`;
+    const msg = `(unknown tool: ${call.name})`;
+    return { result: msg, raw: msg };
   }
   try {
-    const out = await tool.handler(call.input);
+    const raw = await tool.handler(call.input);
     // The read tool is excluded from the PERSIST-TO-DISK cap path (which
     // would create another spill file = infinite loop). Instead we enforce
     // its maxOutputChars inline here with a simple truncation (no spill).
@@ -1481,14 +1532,19 @@ export async function dispatchTool(
     // bound the result to avoid blowing out the LLM context window.
     if (call.name === "read") {
       const readMax = tool.maxOutputChars ?? 100_000;
-      if (out.length > readMax) {
-        return out.slice(0, readMax) + `\n\n--- truncated at ${readMax} chars (file is ${out.length} chars) ---`;
+      if (raw.length > readMax) {
+        return {
+          result: raw.slice(0, readMax) + `\n\n--- truncated at ${readMax} chars (file is ${raw.length} chars) ---`,
+          raw,
+        };
       }
-      return out;
+      return { result: raw, raw };
     }
     const max = tool.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
-    return await capToolResult(call.name, out, max);
+    const result = await capToolResult(call.name, raw, max);
+    return { result, raw };
   } catch (err) {
-    return `(tool error: ${(err as Error).message})`;
+    const msg = `(tool error: ${(err as Error).message})`;
+    return { result: msg, raw: msg };
   }
 }

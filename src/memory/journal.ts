@@ -109,7 +109,7 @@ export async function searchJournal(
         const matches: string[] = [];
         for (const entry of entries) {
           if (entry.toLowerCase().includes(lowerQuery)) {
-            matches.push(entry.length > 200 ? entry.slice(0, 200) + "…" : entry);
+            matches.push(entry);
           }
         }
         if (matches.length > 0) {

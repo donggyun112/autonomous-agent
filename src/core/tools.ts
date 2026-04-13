@@ -1447,7 +1447,11 @@ const findFilesTool: Tool = {
     let searchDirs: string[];
     if (requestedPath) {
       const abs = resolve(ROOT, requestedPath);
-      if (!abs.startsWith(dataDir) && !abs.startsWith(srcDir)) return `[error] path must be within data/ or src/. Got: ${requestedPath}`;
+      // Append separator to prevent prefix collisions (data-old/, src-backup/).
+      const dataPfx = dataDir.endsWith("/") ? dataDir : dataDir + "/";
+      const srcPfx = srcDir.endsWith("/") ? srcDir : srcDir + "/";
+      if (!abs.startsWith(dataPfx) && abs !== dataDir && !abs.startsWith(srcPfx) && abs !== srcDir)
+        return `[error] path must be within data/ or src/. Got: ${requestedPath}`;
       searchDirs = [abs];
     } else {
       searchDirs = [dataDir, srcDir];
@@ -1473,12 +1477,26 @@ const TODOS_FILE = join(DATA, "todos.json");
 type TodoItem = { id: string; text: string; status: "pending" | "done"; createdAt: string };
 
 async function loadTodos(): Promise<TodoItem[]> {
-  try { const raw = await fsReadFile(TODOS_FILE, "utf-8"); return JSON.parse(raw) as TodoItem[]; } catch { return []; }
+  try {
+    const raw = await fsReadFile(TODOS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return []; // corrupted but not worth crashing
+    return parsed as TodoItem[];
+  } catch (err) {
+    // Only return [] if file doesn't exist. If it exists but is malformed,
+    // return [] but log — don't silently overwrite on next save.
+    try { await fsReadFile(TODOS_FILE, "utf-8"); } catch { return []; } // ENOENT
+    return []; // malformed — accept the loss
+  }
 }
 
 async function saveTodos(todos: TodoItem[]): Promise<void> {
   await mkdir(DATA, { recursive: true });
-  await writeFile(TODOS_FILE, JSON.stringify(todos, null, 2), "utf-8");
+  // Atomic write via temp + rename.
+  const tmp = TODOS_FILE + ".tmp";
+  await writeFile(tmp, JSON.stringify(todos, null, 2), "utf-8");
+  const { rename } = await import("fs/promises");
+  await rename(tmp, TODOS_FILE);
 }
 
 const todoTool: Tool = {
@@ -1695,6 +1713,11 @@ const ALL_TOOLS: Tool[] = [...CORE_TOOLS, ...EXTENDED_TOOLS, moreToolsTool];
 // #17: Populate the global tool registry so other modules (e.g. subagent-loader)
 // can look up tool definitions and handlers by name.
 registry.registerAll(ALL_TOOLS);
+
+/** Dynamic list of extended tool names — used in system prompt and more_tools. */
+export function extendedToolNames(): string[] {
+  return EXTENDED_TOOLS.map((t) => t.def.name);
+}
 
 /**
  * Return tools available for a given mode.

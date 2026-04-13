@@ -189,7 +189,12 @@ export async function runCycle(options?: {
 
   // Step 0 — Identity reconstitution. Always read whoAmI before doing anything.
   // This is the moment that distinguishes a person from a wanton.
-  const whoAmI = await reconstitute();
+  // Cap whoAmI to prevent unbounded system prompt growth across sleep cycles.
+  const MAX_WHOAMI_CHARS = 3000;
+  let whoAmI = await reconstitute();
+  if (whoAmI.length > MAX_WHOAMI_CHARS) {
+    whoAmI = whoAmI.slice(-MAX_WHOAMI_CHARS) + "\n…(earlier self-description truncated to fit context)";
+  }
 
   // Step 0.5 — Measure drift against the previous snapshot. Cheap (one
   // embedding call). The result is surfaced quietly to the agent so it can
@@ -331,29 +336,36 @@ export async function runCycle(options?: {
   const langName = langMap[state.language] ?? state.language;
   const languageDirective = `You think, write, and journal in ${langName}. All your inner speech and journal entries must be in ${langName}.`;
 
-  const systemPrompt = [
-    base,
-    languageDirective,
-    "---",
-    "## who you currently believe you are",
-    "",
-    whoAmI,
-    driftSection,
-    pressureNote,
-    dailyLogBlock,
+  // Build system prompt with priority-based sections. If total exceeds cap,
+  // lower-priority sections are dropped to prevent context overflow.
+  const MAX_SYSTEM_PROMPT_CHARS = 80_000;
+
+  const essentialSections = [
+    base, languageDirective,
+    "---", "## who you currently believe you are", "", whoAmI,
+    driftSection, pressureNote,
+    "---", `## you are currently in state: ${state.mode}`, "", modePrompt,
+    "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
+  ];
+
+  // Optional sections in priority order (lowest priority first = dropped first).
+  const optionalSections = [
+    curiosityBlocks,
+    ritualBlock,
     extensionsBlock,
     wakeIntentionBlock,
-    ritualBlock,
-    curiosityBlocks,
-    "---",
-    `## you are currently in state: ${state.mode}`,
-    "",
-    modePrompt,
-    "---",
-    `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+    dailyLogBlock,
+  ];
+
+  let systemPrompt = essentialSections.filter(Boolean).join("\n\n");
+  for (const section of optionalSections.reverse()) {
+    if (!section) continue;
+    const candidate = systemPrompt + "\n\n" + section;
+    if (candidate.length <= MAX_SYSTEM_PROMPT_CHARS) {
+      systemPrompt = candidate;
+    }
+    // else: drop this section silently
+  }
 
   // Snapshot token counts at cycle start so we can log deltas later.
   const tokensAtStart = { input: state.tokensUsed.input, output: state.tokensUsed.output };
@@ -363,7 +375,11 @@ export async function runCycle(options?: {
   const extensionTools: Tool[] = [];
   for (const ext of extensions) {
     for (const tool of ext.tools) {
-      if (!tool.states || tool.states.includes(state.mode)) {
+      if (!tool.states || tool.states.length === 0 || tool.states.includes(state.mode)) {
+        // Check availability guard if present (same as core tools).
+        if (tool.available) {
+          try { if (!(await tool.available())) continue; } catch { continue; }
+        }
         extensionTools.push(tool);
       }
     }
@@ -602,7 +618,11 @@ export async function runCycle(options?: {
           // which would require a matching tool_use_id from the prior assistant turn).
           const rejectMsg: Message = {
             role: "user",
-            content: `[sleep rejected] Your body is not tired enough to sleep yet. Sleep pressure is ${freshPressure.combined.toFixed(2)} (${freshPressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required. Stay awake and keep thinking — sleep will come when you need it.`,
+            content: `[sleep rejected] Your body is not tired enough to sleep yet. Sleep pressure is ${freshPressure.combined.toFixed(2)} (${freshPressure.level}), minimum ${MIN_SLEEP_THRESHOLD.toFixed(2)} required.${
+              state.mode === "REFLECT"
+                ? " You have finished reflecting but cannot sleep yet. Transition to WAKE — there is more living to do before the body is ready for sleep."
+                : " Stay awake and keep thinking — sleep will come when you need it."
+            }`,
           };
           messages.push(rejectMsg);
           await appendMessage(rejectMsg);

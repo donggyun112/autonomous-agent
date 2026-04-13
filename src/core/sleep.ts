@@ -19,7 +19,7 @@
 //   7. transition to WAKE
 
 import { thinkAux } from "../llm/client.js";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { DATA } from "../primitives/paths.js";
 import {
@@ -258,17 +258,25 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   }
 
   // 0. Ingest today's journal entries into the memory graph.
-  // During WAKE/REFLECT the agent only writes to journal files (cheap, fast).
-  // Here we batch-process them into the memory graph — like how biological
-  // memories are consolidated during sleep, not during waking experience.
+  // Idempotency: track the last ingested entry timestamp in a cursor file.
+  // If sleep crashes mid-ingestion and restarts, we skip already-ingested entries.
+  const cursorFile = join(DATA, ".ingest-cursor");
   try {
     const { extractKeys } = await import("../memory/keys.js");
     const todayText = await readToday();
     if (todayText) {
-      // Split by entry headers: ## <ISO timestamp> · <MODE>
-      // e.g. "## 2026-04-12T17:14:24.961Z · WAKE"
+      // Read cursor — the ISO timestamp of the last ingested entry.
+      let cursor = "";
+      try { cursor = (await readFile(cursorFile, "utf-8")).trim(); } catch { /* no cursor yet */ }
+
       const entries = todayText.split(/\n(?=## \d{4}-\d{2}-\d{2}T)/).filter((e) => e.trim());
       for (const entry of entries) {
+        // Extract timestamp from header for cursor comparison.
+        const tsMatch = entry.match(/^## (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
+        const entryTs = tsMatch ? tsMatch[1] : "";
+        // Skip entries already ingested (before or at cursor).
+        if (cursor && entryTs && entryTs <= cursor) continue;
+
         const text = entry.replace(/^## \d{4}-\d{2}-\d{2}T[\d:.]+Z\s*·\s*\w+\s*\n/, "").trim();
         if (!text || text.length < 10) continue;
         const keys = extractKeys(text);
@@ -276,10 +284,14 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
         try {
           await remember(text, keys);
           report.memoriesIngested += 1;
+          // Update cursor after each successful ingest.
+          if (entryTs) await writeFile(cursorFile, entryTs, "utf-8");
         } catch {
           // skip individual failures
         }
       }
+      // Clean up cursor after full ingestion.
+      try { await rm(cursorFile); } catch { /* ok */ }
     }
   } catch (err) {
     report.errors.push({ step: "journal-ingest", message: (err as Error).message });
@@ -503,6 +515,14 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   state = resetAfterSleep(state);
   state = await transition(state, "WAKE", "sleep complete");
   await saveState(state);
+
+  // New agent-day: reset log file caches so they pick up the new sleepCount.
+  try {
+    const { resetActionLogDay } = await import("./action-log.js");
+    const { resetSystemLogDay } = await import("./system-log.js");
+    resetActionLogDay();
+    resetSystemLogDay();
+  } catch { /* ok */ }
 
   report.durationMs = Date.now() - startedAt;
   return report;

@@ -12,12 +12,23 @@ function isInside(target: string): boolean {
   return !rel.startsWith("..") && !resolve(rel).startsWith("..");
 }
 
+// Paths the agent must never read (secrets, credentials).
+const BLOCKED_PATTERNS = [".auth", ".env", "oauth.json", "credentials"];
+
+function isBlocked(path: string): boolean {
+  const lower = path.toLowerCase();
+  return BLOCKED_PATTERNS.some((p) => lower.includes(p));
+}
+
 export async function readPath(path: string): Promise<string> {
   const abs = resolve(ROOT, path);
   if (!isInside(abs)) {
     throw new Error(
       `read: path is outside of self (${path}). The agent may only read its own world.`,
     );
+  }
+  if (isBlocked(path)) {
+    throw new Error(`read: access denied — ${path} contains sensitive data.`);
   }
   const s = await stat(abs);
   if (s.isDirectory()) {

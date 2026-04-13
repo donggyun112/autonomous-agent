@@ -82,6 +82,19 @@ const CODE_THREAT_PATTERNS: CodeThreat[] = [
   { pattern: new RegExp(`\\bfrom\\s+["'\`]${CP}["'\`]`), name: `import-from-${CP}` },
   // fs.writeFileSync — flag unconditionally; regex can't reliably check indirect paths
   { pattern: /\bfs\.writeFileSync\b/, name: "fs.writeFileSync" },
+  // Network access — extensions should not make outbound connections
+  { pattern: /\brequire\s*\(\s*["'`](?:node:)?(?:http|https|net|dgram|tls)["'`]\s*\)/, name: "network-require" },
+  { pattern: /\bimport\s*\(\s*["'`](?:node:)?(?:http|https|net|dgram|tls)["'`]\s*\)/, name: "network-import" },
+  { pattern: /\bfrom\s+["'`](?:node:)?(?:http|https|net|dgram|tls)["'`]/, name: "network-import-from" },
+  { pattern: /\bfetch\s*\(/, name: "fetch" },
+  // Docker socket — must not escape container
+  { pattern: /docker\.sock/, name: "docker-socket" },
+  // Direct file ops outside extensions — flag rm, unlink, writeFile on paths with ../
+  { pattern: /\bfs\.\w+Sync\b/, name: "fs-sync-op" },
+  { pattern: /\brm\s*\(\s*["'`](?:\.\.|\/)/, name: "rm-outside" },
+  // Import of core modules — extensions must not reach into src/core/
+  { pattern: /\bfrom\s+["'`](?:\.\.\/)+core\//, name: "import-core-module" },
+  { pattern: /\bimport\s*\(\s*["'`](?:\.\.\/)+core\//, name: "dynamic-import-core" },
 ];
 
 export function scanExtensionCode(content: string): ScanResult {

@@ -110,15 +110,14 @@ export type SleepPressure = {
 export function calculateSleepPressure(state: AgentState, now = Date.now()): SleepPressure {
   const homeostatic = Math.max(0, Math.min(1, state.awakeMs / MAX_AWAKE_MS));
 
-  // Circadian: based on agent-subjective time, not wall clock.
-  // We compute agent's "hour of day" from total awake time modulo 24h.
-  // The agent's day cycle is always 24 agent-hours regardless of TIME_SCALE.
-  // Peak sleep need at agent-hour ~20 (after 16h awake), lowest at ~8 (morning).
-  const agentHoursAwake = state.awakeMs / 3_600_000; // ms → hours
-  // Map to a 24h cycle: hour 0 = sleep end, hour 16 = bedtime, hour 20 = deep night
-  const agentHourOfDay = agentHoursAwake % 24;
-  // cos peaks at 0 (midnight-equivalent), troughs at 12 (noon-equivalent)
-  // We shift so peak sleepiness is at ~20h awake (agent's "4am")
+  // Circadian: independent Process C oscillator. Unlike homeostatic (which
+  // resets on sleep), circadian is a free-running clock based on total elapsed
+  // agent-time since birth. It cycles every 24 agent-hours regardless of sleep.
+  // Peak sleepiness at agent-hour 20 of each cycle (equivalent to 4am).
+  const totalAgentMs = state.bornAt > 0
+    ? (now - state.bornAt) * TIME_SCALE
+    : state.awakeMs; // fallback for agents born before bornAt was added
+  const agentHourOfDay = (totalAgentMs / 3_600_000) % 24;
   const circadian = 0.5 + 0.5 * Math.cos(((agentHourOfDay - 20) / 24) * 2 * Math.PI);
 
   const combined = Math.min(1, 0.7 * homeostatic + 0.3 * circadian);
@@ -186,19 +185,31 @@ export async function saveState(state: AgentState): Promise<void> {
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
 }
 
+// Legal state transitions. Enforced — the agent cannot skip states.
+const LEGAL_TRANSITIONS: Record<Mode, Mode[]> = {
+  WAKE: ["REFLECT", "SLEEP"],    // WAKE → REFLECT (normal) or SLEEP (forced)
+  REFLECT: ["WAKE", "SLEEP"],    // REFLECT → SLEEP (normal) or WAKE (if sleep rejected)
+  SLEEP: ["WAKE"],               // SLEEP → WAKE (only exit from sleep)
+};
+
 export async function transition(
   state: AgentState,
   to: Mode,
   reason: string,
   options?: { wakeAfterMs?: number },
 ): Promise<AgentState> {
+  const allowed = LEGAL_TRANSITIONS[state.mode];
+  if (!allowed.includes(to)) {
+    throw new Error(`Illegal transition: ${state.mode} → ${to}. Allowed: ${allowed.join(", ")}`);
+  }
   const next: AgentState = {
     ...state,
     mode: to,
     modeTurn: 0,
     lastTransition: Date.now(),
     lastTransitionReason: reason,
-    wakeAfter: options?.wakeAfterMs ? Date.now() + options.wakeAfterMs : 0,
+    // wakeAfterMs is in agent-time. Convert to wall-time for the daemon.
+    wakeAfter: options?.wakeAfterMs ? Date.now() + options.wakeAfterMs / TIME_SCALE : 0,
     // Epoch (cycle) advances only on the real sleep boundary: SLEEP → WAKE.
     // REFLECT → WAKE is not a new epoch — it's a within-day state change.
     cycle: to === "WAKE" && state.mode === "SLEEP" ? state.cycle + 1 : state.cycle,

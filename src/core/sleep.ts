@@ -490,6 +490,14 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "sleep-narrative", message: (err as Error).message });
   }
 
+  // 5f. Compress recent session trajectories.
+  try {
+    const { compressRecentTrajectories } = await import("./trajectory.js");
+    await compressRecentTrajectories(3);
+  } catch (err) {
+    report.errors.push({ step: "trajectory-compression", message: (err as Error).message });
+  }
+
   // 6. Reset sleep pressure + 7. transition to WAKE.
   let state = await loadState();
   state = resetAfterSleep(state);

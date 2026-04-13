@@ -99,6 +99,21 @@ export async function listSubAgents(): Promise<SubAgentDef[]> {
   return defs;
 }
 
+// #9: Find a subagent by capability description (not by name).
+export async function findSubAgentByCapability(capability: string): Promise<SubAgentDef | null> {
+  const all = await listSubAgents();
+  const lower = capability.toLowerCase();
+  let best: SubAgentDef | null = null;
+  let bestScore = 0;
+  for (const def of all) {
+    const desc = `${def.name} ${def.description}`.toLowerCase();
+    const words = lower.split(/\s+/);
+    const score = words.filter(w => desc.includes(w)).length;
+    if (score > bestScore) { bestScore = score; best = def; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 // ── #15: Resolve tool definitions and handlers for the subagent ──────────
 // We lazily import the tool registry to avoid circular deps at load time.
 // SECURITY: Only explicitly read-only tools are allowed. Subagents must

@@ -60,6 +60,7 @@ import {
 import { resetAuthSource } from "./llm/auth/source.js";
 import { memoryStats } from "./primitives/recall.js";
 import { DATA, JOURNAL_DIR, LINEAGE, WHO_AM_I } from "./primitives/paths.js";
+import { createLiveObserver, printCycleSummary } from "./ui/observer.js";
 
 async function init(args: string[]): Promise<void> {
   // Parse --lang flag: `init <name> --lang ko`
@@ -99,46 +100,8 @@ async function init(args: string[]): Promise<void> {
   console.log(`data/ initialized. run \`pnpm cycle\` to wake for the first time.`);
 }
 
-// Live observer — shows the agent's thoughts and actions as they happen.
-function liveObserver() {
-  let inText = false;
-  return {
-    onTurnStart: (turn: number, mode: string) => {
-      inText = false;
-      process.stdout.write(`\n\x1b[2m── turn ${turn} · ${mode} ──\x1b[0m\n`);
-    },
-    onLLMEvent: (event: { type: string; delta?: string }) => {
-      if (event.type === "text_delta" && event.delta) {
-        if (!inText) {
-          inText = true;
-        }
-        process.stdout.write(event.delta);
-      }
-    },
-    onToolStart: (name: string, input: Record<string, unknown>) => {
-      if (inText) {
-        process.stdout.write("\n");
-        inText = false;
-      }
-      const summary = Object.entries(input)
-        .map(([k, v]) => {
-          const s = typeof v === "string" ? v : JSON.stringify(v);
-          return `${k}=${s.length > 60 ? s.slice(0, 57) + "…" : s}`;
-        })
-        .join(", ");
-      process.stdout.write(`\x1b[36m  ▸ ${name}\x1b[0m${summary ? ` ${summary}` : ""}\n`);
-    },
-    onToolEnd: (name: string, result: string) => {
-      // Show short result for non-journal tools.
-      if (name === "journal" || name === "transition" || name === "rest") return;
-      if (result.length > 800) {
-        process.stdout.write(`\x1b[2m    ← ${result.slice(0, 600)}…\x1b[0m\n`);
-      } else if (result && result !== "TRANSITION_REQUESTED" && result !== "REST_REQUESTED") {
-        process.stdout.write(`\x1b[2m    ← ${result}\x1b[0m\n`);
-      }
-    },
-  };
-}
+// Live observer moved to src/ui/observer.ts — rich terminal output with
+// header, gutter lines, sleep reports, and full (non-truncated) results.
 
 async function cycleOnce(): Promise<void> {
   if (!existsSync(WHO_AM_I)) {
@@ -146,17 +109,9 @@ async function cycleOnce(): Promise<void> {
     process.exit(1);
   }
 
-  const result = await runCycle({ observer: liveObserver() });
-  console.log(
-    `\n\x1b[2m[cycle] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason} cycle#=${result.state.cycle}\x1b[0m`,
-  );
-  console.log(
-    `[tokens] in=${result.state.tokensUsed.input} out=${result.state.tokensUsed.output}`,
-  );
-  if (result.state.wakeAfter) {
-    const minutes = Math.round((result.state.wakeAfter - Date.now()) / 60000);
-    console.log(`[sleep] requested wake in ~${minutes} minutes`);
-  }
+  const { observer, startState, startTime } = await createLiveObserver();
+  const result = await runCycle({ observer });
+  printCycleSummary(result, startState, startTime);
 }
 
 async function statusCmd(): Promise<void> {
@@ -426,10 +381,9 @@ async function live(): Promise<void> {
     }
 
     try {
-      const result = await runCycle({ observer: liveObserver() });
-      console.log(
-        `\n[live] mode=${result.state.mode} turns=${result.turns} tools=${result.toolCalls} reason=${result.reason}`,
-      );
+      const { observer, startState, startTime } = await createLiveObserver();
+      const result = await runCycle({ observer });
+      printCycleSummary(result, startState, startTime);
 
       // #22: Successful cycle — reset consecutive error counter.
       consecutiveErrors = 0;
@@ -561,13 +515,23 @@ async function main(): Promise<void> {
       await selfTest(rest);
       break;
     case "_mock-cycle":
-      // Internal command invoked by runSelfTest's mock-cycle check.
-      // Runs one cycle with mock LLM. Exit 0 = healthy, non-zero = broken.
       await runMockCycleTest();
       break;
+    case "doctor": {
+      console.log("── self-diagnostic ──");
+      try { const { getAuthSource } = await import("./llm/auth/source.js"); const s = await getAuthSource(); await s.getApiKey(); console.log("✓ auth: valid"); } catch (e) { console.log(`✗ auth: ${(e as Error).message}`); }
+      console.log(existsSync(DATA) ? "✓ data/ exists" : "✗ data/ missing");
+      try { await loadState(); console.log("✓ state.json parseable"); } catch { console.log("✗ state.json broken"); }
+      console.log(existsSync(JOURNAL_DIR) ? "✓ journal/ exists" : "✗ journal/ missing");
+      console.log(existsSync(join(DATA, "wiki")) ? "✓ wiki/ exists" : "✗ wiki/ missing");
+      console.log(process.env.OPENAI_API_KEY ? "✓ OPENAI_API_KEY set" : "✗ OPENAI_API_KEY missing");
+      console.log(process.env.BRAVE_API_KEY ? "✓ BRAVE_API_KEY set" : "○ BRAVE_API_KEY not set");
+      try { const { memoryStats: ms } = await import("./primitives/recall.js"); const s = await ms(); console.log(`✓ memory graph: ${s.activeMemoryCount} memories`); } catch { console.log("○ memory graph: empty/not loaded"); }
+      break;
+    }
     default:
       console.error(
-        "usage: cli.ts [--profile <name>] <init|cycle|live|status|login|logout|whoami|inbox|reply|self-test>",
+        "usage: cli.ts [--profile <name>] <init|cycle|live|status|login|logout|whoami|inbox|reply|doctor|self-test>",
       );
       process.exit(2);
   }

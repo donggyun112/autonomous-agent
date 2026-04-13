@@ -37,7 +37,11 @@ export async function clearDeadLetterEntry(id: string): Promise<boolean> {
       try { return (JSON.parse(l) as FailedEntry).id !== id; } catch { return true; }
     });
     if (filtered.length === lines.length) return false;
-    await writeFile(DLQ_FILE, filtered.join("\n") + "\n", "utf-8");
+    // Atomic write via temp file + rename to avoid losing concurrent appends.
+    const tmp = DLQ_FILE + ".tmp";
+    await writeFile(tmp, filtered.join("\n") + "\n", "utf-8");
+    const { rename } = await import("fs/promises");
+    await rename(tmp, DLQ_FILE);
     return true;
   } catch { return false; }
 }

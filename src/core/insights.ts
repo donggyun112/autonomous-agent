@@ -26,13 +26,17 @@ export async function generateInsights(days = 7): Promise<InsightReport> {
     journalDays = files.filter((f) => f.startsWith("day-") && f.endsWith(".md")).length;
   } catch { /* ok */ }
 
+  // Trend: compare tool call activity in first half vs second half of the period.
+  // Use actual timestamps to split, not array indices — entries within a day
+  // are naturally ordered, so we split by midpoint timestamp.
   const entries = await readRecentActions(days);
   let trend: "growing" | "stable" | "declining" = "stable";
   if (entries.length >= 10) {
-    const half = Math.floor(entries.length / 2);
-    const second = entries.slice(half).length;
-    if (second > half * 1.2) trend = "growing";
-    else if (second < half * 0.8) trend = "declining";
+    const midTs = entries[Math.floor(entries.length / 2)].ts;
+    const firstHalfCalls = entries.filter(e => e.ts < midTs).length;
+    const secondHalfCalls = entries.filter(e => e.ts >= midTs).length;
+    if (secondHalfCalls > firstHalfCalls * 1.3) trend = "growing";
+    else if (secondHalfCalls < firstHalfCalls * 0.7) trend = "declining";
   }
 
   return {

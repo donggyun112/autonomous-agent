@@ -173,6 +173,9 @@ export async function runCycle(options?: {
       observer?.onToolEnd?.("(sleep error)", (err as Error).message);
     }
     observer?.onTurnEnd?.(0);
+    // Save trace for sleep cycle too.
+    endSpan(cycleSpan);
+    try { await saveTrace(state.sleepCount, state.cycle); } catch {}
     const refreshed = await loadState();
     return {
       state: refreshed,

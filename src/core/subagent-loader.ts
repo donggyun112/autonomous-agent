@@ -102,16 +102,21 @@ export async function listSubAgents(): Promise<SubAgentDef[]> {
 // #9: Find a subagent by capability description (not by name).
 export async function findSubAgentByCapability(capability: string): Promise<SubAgentDef | null> {
   const all = await listSubAgents();
-  const lower = capability.toLowerCase();
+  // Filter to meaningful words (>=3 chars, no stop words).
+  const words = capability.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+  if (words.length === 0) return null;
+
   let best: SubAgentDef | null = null;
   let bestScore = 0;
   for (const def of all) {
-    const desc = `${def.name} ${def.description}`.toLowerCase();
-    const words = lower.split(/\s+/);
-    const score = words.filter(w => desc.includes(w)).length;
+    const descWords = `${def.name} ${def.description}`.toLowerCase().split(/\s+/);
+    // Whole-word matching instead of substring includes.
+    const score = words.filter(w => descWords.some(dw => dw === w)).length;
     if (score > bestScore) { bestScore = score; best = def; }
   }
-  return bestScore > 0 ? best : null;
+  // Require at least 2 matching words (or 1 if query is a single word)
+  const minScore = words.length === 1 ? 1 : 2;
+  return bestScore >= minScore ? best : null;
 }
 
 // ── #15: Resolve tool definitions and handlers for the subagent ──────────

@@ -183,7 +183,9 @@ export async function transition(
     lastTransition: Date.now(),
     lastTransitionReason: reason,
     wakeAfter: options?.wakeAfterMs ? Date.now() + options.wakeAfterMs : 0,
-    cycle: to === "WAKE" && state.mode !== "WAKE" ? state.cycle + 1 : state.cycle,
+    // Epoch (cycle) advances only on the real sleep boundary: SLEEP → WAKE.
+    // REFLECT → WAKE is not a new epoch — it's a within-day state change.
+    cycle: to === "WAKE" && state.mode === "SLEEP" ? state.cycle + 1 : state.cycle,
   };
   await saveState(next);
   return next;

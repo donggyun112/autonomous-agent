@@ -142,18 +142,17 @@ async function archiveSession(): Promise<boolean> {
 }
 
 // Clear session — called when entering SLEEP (natural boundary).
-// Archives the session before deleting. If archive fails, the original
-// session is preserved to prevent data loss.
+// Archives the session before deleting. If archive fails, we still clear
+// the session to prevent stale pre-sleep context from leaking into next WAKE.
+// Data loss in that case is acceptable — the journal has the real thoughts,
+// and the session is just a conversation cache.
 export async function clearSession(): Promise<void> {
-  const archived = await archiveSession();
-  if (archived) {
-    try {
-      await rm(SESSION_FILE);
-    } catch {
-      // ok — file may not exist
-    }
+  await archiveSession(); // best-effort archive
+  try {
+    await rm(SESSION_FILE);
+  } catch {
+    // ok — file may not exist
   }
-  // Always clear meta regardless — it's low-value and regenerated.
   await clearSessionMeta();
 }
 

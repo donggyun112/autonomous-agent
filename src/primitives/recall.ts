@@ -63,20 +63,28 @@ export async function dream(args: {
 }) {
   const g = await getGraph();
 
-  // #14: Save current content to version history before dreaming.
+  // #14: Capture current content for version history, but only commit
+  // the version record AFTER g.dream() succeeds — otherwise we record
+  // a version that never actually existed if dream fails.
   const mem = g.memories[args.memoryId];
-  if (mem) {
-    const versions = await loadVersions();
-    if (!versions[args.memoryId]) versions[args.memoryId] = [];
-    versions[args.memoryId].push({
-      content: mem.content,
-      depth: mem.depth,
-      timestamp: new Date().toISOString(),
-    });
-    await saveVersions(versions);
+  const preDreamSnapshot = mem
+    ? { content: mem.content, depth: mem.depth, timestamp: new Date().toISOString() }
+    : null;
+
+  const result = g.dream(args);
+
+  if (preDreamSnapshot) {
+    try {
+      const versions = await loadVersions();
+      if (!versions[args.memoryId]) versions[args.memoryId] = [];
+      versions[args.memoryId].push(preDreamSnapshot);
+      await saveVersions(versions);
+    } catch {
+      // version history failure should not crash dreaming
+    }
   }
 
-  return g.dream(args);
+  return result;
 }
 
 export async function pruneWeak(options?: { minAgeSec?: number; maxToPrune?: number }) {

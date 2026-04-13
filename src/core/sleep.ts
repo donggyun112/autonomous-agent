@@ -265,10 +265,11 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     const { extractKeys } = await import("../memory/keys.js");
     const todayText = await readToday();
     if (todayText) {
-      // Split by entry headers (## HH:MM:SS lines) to get individual thoughts.
-      const entries = todayText.split(/\n(?=## \d{2}:\d{2})/).filter((e) => e.trim());
+      // Split by entry headers: ## <ISO timestamp> · <MODE>
+      // e.g. "## 2026-04-12T17:14:24.961Z · WAKE"
+      const entries = todayText.split(/\n(?=## \d{4}-\d{2}-\d{2}T)/).filter((e) => e.trim());
       for (const entry of entries) {
-        const text = entry.replace(/^## \d{2}:\d{2}[:\d]*\s*\n/, "").trim();
+        const text = entry.replace(/^## \d{4}-\d{2}-\d{2}T[\d:.]+Z\s*·\s*\w+\s*\n/, "").trim();
         if (!text || text.length < 10) continue;
         const keys = extractKeys(text);
         if (keys.length === 0) keys.push("thought");

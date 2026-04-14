@@ -128,6 +128,7 @@ export class LocalAdapter implements LlmAdapter {
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
       stream: true,
+      repetition_penalty: 1.3,
     };
 
     const oaiTools = toOpenAITools(args.tools);
@@ -149,6 +150,7 @@ export class LocalAdapter implements LlmAdapter {
     let text = "";
     const toolCalls: ToolCall[] = [];
     const tcAccum: Record<string, { id?: string; name: string; args: string }> = {};
+    let aborted = false;
 
     for await (const chunk of parseSSE(res.body)) {
       const choices = chunk.choices as Array<Record<string, unknown>> | undefined;
@@ -159,6 +161,19 @@ export class LocalAdapter implements LlmAdapter {
       if (typeof delta.content === "string" && delta.content) {
         text += delta.content;
         args.onEvent?.({ type: "text_delta", delta: delta.content });
+
+        // Repetition detection: if a 40+ char phrase repeats 3+ times, abort
+        if (text.length > 200) {
+          const tail = text.slice(-200);
+          const match = tail.match(/(.{40,}?)\1{2,}/);
+          if (match) {
+            // Trim to just before the repetition started
+            const repIdx = text.lastIndexOf(match[1] + match[1]);
+            if (repIdx > 0) text = text.slice(0, repIdx).trimEnd();
+            aborted = true;
+            break;
+          }
+        }
       }
 
       // Tool calls
@@ -185,6 +200,10 @@ export class LocalAdapter implements LlmAdapter {
           input: parsed,
         });
       } catch { /* skip malformed */ }
+    }
+
+    if (aborted) {
+      console.warn(`[${this.id}] repetition detected — output truncated at ${text.length} chars`);
     }
 
     const result: ThinkResult = {

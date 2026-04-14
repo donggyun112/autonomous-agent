@@ -201,6 +201,10 @@ export async function transition(
   reason: string,
   options?: { wakeAfterMs?: number },
 ): Promise<AgentState> {
+  // Same-state transition is a no-op, not an error.
+  if (state.mode === to) {
+    return state;
+  }
   const allowed = LEGAL_TRANSITIONS[state.mode];
   if (!allowed.includes(to)) {
     throw new Error(`Illegal transition: ${state.mode} → ${to}. Allowed: ${allowed.join(", ")}`);

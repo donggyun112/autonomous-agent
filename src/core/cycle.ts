@@ -532,21 +532,17 @@ export async function runCycle(options?: {
     // The session stays alive so the agent builds on its own thoughts.
     if (response.toolCalls.length === 0) {
       if (response.text.trim()) {
-        // Cross-turn repetition detection: if text is too similar to previous turn, nudge.
-        if (prevTextOutput && textSimilarity(prevTextOutput, response.text) > 0.6) {
-          noToolTurns += 1; // gentle nudge, not aggressive acceleration
-          const nudge: Message = {
-            role: "user",
-            content: `[system] 이전 턴과 비슷한 내용이다. 도구를 사용해서 구체적인 행동을 해라.`,
-          };
-          messages.push(nudge);
-          await appendMessage(nudge);
-        } else {
-          const journalTool = tools.find((t) => t.def.name === "journal");
-          if (journalTool) {
-            await journalTool.handler({ text: response.text });
-            toolCallCount += 1;
-          }
+        // Cross-turn repetition: silently count but don't inject messages.
+        // System nudges were contaminating the agent's self-narrative.
+        const isSimilar = prevTextOutput && textSimilarity(prevTextOutput, response.text) > 0.6;
+        if (isSimilar) {
+          noToolTurns += 1; // silent count toward rest threshold
+        }
+        // Journal regardless — the agent's voice should not be suppressed.
+        const journalTool = tools.find((t) => t.def.name === "journal");
+        if (journalTool) {
+          await journalTool.handler({ text: response.text });
+          toolCallCount += 1;
         }
         prevTextOutput = response.text;
         // Keep the text in conversation so next turn sees it.

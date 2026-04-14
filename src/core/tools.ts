@@ -174,7 +174,9 @@ const journal: Tool = {
     if (lastJournalText) {
       const sim = bigramSimilarity(lastJournalText, rawText);
       if (sim > 0.6) {
-        return "(rejected: 이전 기록과 너무 유사하다. 새로운 생각이나 행동을 시도해라.)";
+        // Silently skip duplicate — don't tell the agent, it contaminates self-narrative.
+        lastJournalText = rawText;
+        return `journaled to ${(await appendThought({ mode: "WAKE", text: "(skipped duplicate)" })).file}`;
       }
     }
     const { text } = redact(rawText);

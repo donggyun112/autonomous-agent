@@ -532,12 +532,12 @@ export async function runCycle(options?: {
     // The session stays alive so the agent builds on its own thoughts.
     if (response.toolCalls.length === 0) {
       if (response.text.trim()) {
-        // Cross-turn repetition detection: if text is too similar to previous turn, force rest.
+        // Cross-turn repetition detection: if text is too similar to previous turn, nudge.
         if (prevTextOutput && textSimilarity(prevTextOutput, response.text) > 0.6) {
-          noToolTurns += 3; // accelerate toward rest
+          noToolTurns += 1; // gentle nudge, not aggressive acceleration
           const nudge: Message = {
             role: "user",
-            content: `[system] 이전 턴과 거의 같은 내용을 반복하고 있다. 다른 행동을 해라 — 도구를 사용하거나, 새로운 질문을 탐구하라. 같은 생각을 되풀이하는 것은 낭비다.`,
+            content: `[system] 이전 턴과 비슷한 내용이다. 도구를 사용해서 구체적인 행동을 해라.`,
           };
           messages.push(nudge);
           await appendMessage(nudge);
@@ -559,7 +559,7 @@ export async function runCycle(options?: {
       }
 
       noToolTurns += 1;
-      if (noToolTurns >= 5) {
+      if (noToolTurns >= 8) {
         result = "rested";
         break;
       }

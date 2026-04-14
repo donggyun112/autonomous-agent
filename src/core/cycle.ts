@@ -559,7 +559,10 @@ export async function runCycle(options?: {
       }
 
       noToolTurns += 1;
-      if (noToolTurns >= 8) {
+      // REFLECT naturally produces text-only turns — allow more room.
+      // WAKE/SLEEP should use tools, so shorter leash.
+      const restThreshold = state.mode === "REFLECT" ? 20 : 8;
+      if (noToolTurns >= restThreshold) {
         result = "rested";
         break;
       }

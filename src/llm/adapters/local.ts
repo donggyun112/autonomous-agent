@@ -162,16 +162,23 @@ export class LocalAdapter implements LlmAdapter {
         text += delta.content;
         args.onEvent?.({ type: "text_delta", delta: delta.content });
 
-        // Repetition detection: if a 40+ char phrase repeats 3+ times, abort
-        if (text.length > 200) {
-          const tail = text.slice(-200);
-          const match = tail.match(/(.{40,}?)\1{2,}/);
-          if (match) {
-            // Trim to just before the repetition started
-            const repIdx = text.lastIndexOf(match[1] + match[1]);
-            if (repIdx > 0) text = text.slice(0, repIdx).trimEnd();
-            aborted = true;
-            break;
+        // Repetition detection: split into lines, check if any line repeats 3+ times
+        if (text.length > 300) {
+          const lines = text.split("\n").filter(l => l.trim().length > 10);
+          if (lines.length >= 3) {
+            const last = lines[lines.length - 1].trim();
+            let repeats = 0;
+            for (let i = lines.length - 1; i >= 0; i--) {
+              if (lines[i].trim() === last) repeats++;
+              else break;
+            }
+            if (repeats >= 3) {
+              // Keep text up to first occurrence of the repeated line
+              const firstIdx = text.indexOf(last);
+              text = text.slice(0, firstIdx + last.length).trimEnd();
+              aborted = true;
+              break;
+            }
           }
         }
       }

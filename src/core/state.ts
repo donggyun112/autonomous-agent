@@ -100,8 +100,8 @@ export const SOFT_THRESHOLD = 0.5;
 // Like a human who can't nap 30 minutes after waking up.
 // Minimum requires BOTH homeostatic > 0 AND combined >= threshold.
 // This prevents sleeping immediately after waking (homeostatic=0).
-export const MIN_SLEEP_THRESHOLD = 0.25;
-export const MIN_HOMEOSTATIC_FOR_SLEEP = 0.15; // ~2.4h agent-time minimum awake
+export const MIN_SLEEP_THRESHOLD = 0.15;
+export const MIN_HOMEOSTATIC_FOR_SLEEP = 0.08; // ~1.3h agent-time minimum awake
 
 export type SleepPressure = {
   homeostatic: number; // 0..1, time-since-last-sleep

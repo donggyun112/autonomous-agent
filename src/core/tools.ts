@@ -147,6 +147,8 @@ async function capToolResult(toolName: string, content: string, max: number): Pr
 
 // ── Body tools ──────────────────────────────────────────────────────────
 
+let lastJournalText = "";
+
 const journal: Tool = {
   states: ["WAKE", "REFLECT", "SLEEP"],
   def: {
@@ -168,11 +170,34 @@ const journal: Tool = {
   handler: async (input) => {
     const rawText = String(input.text ?? "");
     if (!rawText.trim()) return "(empty thought ignored)";
+    // Dedup: reject if too similar to last journal entry (bigram similarity > 0.6)
+    if (lastJournalText) {
+      const sim = bigramSimilarity(lastJournalText, rawText);
+      if (sim > 0.6) {
+        return "(rejected: 이전 기록과 너무 유사하다. 새로운 생각이나 행동을 시도해라.)";
+      }
+    }
     const { text } = redact(rawText);
     const { file } = await appendThought({ mode: "WAKE", text });
+    lastJournalText = rawText;
     return `journaled to ${file}`;
   },
 };
+
+function bigramSimilarity(a: string, b: string): number {
+  const bigrams = (s: string): Set<string> => {
+    const set = new Set<string>();
+    const norm = s.replace(/\s+/g, " ").trim();
+    for (let i = 0; i < norm.length - 1; i++) set.add(norm.slice(i, i + 2));
+    return set;
+  };
+  const sa = bigrams(a);
+  const sb = bigrams(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let overlap = 0;
+  for (const bg of sa) if (sb.has(bg)) overlap++;
+  return (2 * overlap) / (sa.size + sb.size);
+}
 
 const recallSelf: Tool = {
   preserveOnCompact: true,

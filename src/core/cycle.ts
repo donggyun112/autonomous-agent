@@ -83,6 +83,22 @@ import { logCycleCost } from "./action-log.js";
 
 const PROMPT_DIR = join(SRC, "llm", "prompts");
 
+/** Cheap bigram-based similarity (0..1). No external deps. */
+function textSimilarity(a: string, b: string): number {
+  const bigrams = (s: string): Set<string> => {
+    const set = new Set<string>();
+    const norm = s.replace(/\s+/g, " ").trim();
+    for (let i = 0; i < norm.length - 1; i++) set.add(norm.slice(i, i + 2));
+    return set;
+  };
+  const sa = bigrams(a);
+  const sb = bigrams(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let overlap = 0;
+  for (const bg of sa) if (sb.has(bg)) overlap++;
+  return (2 * overlap) / (sa.size + sb.size);
+}
+
 async function loadPrompt(name: string): Promise<string> {
   return await readFile(join(PROMPT_DIR, name), "utf-8");
 }
@@ -461,6 +477,7 @@ export async function runCycle(options?: {
   let result: CycleResult["reason"] = "turn_budget";
   let noToolTurns = 0;
   const recentCalls: Array<{ name: string; inputKey: string }> = [];
+  let prevTextOutput = "";  // track previous turn's text for cross-turn repetition detection
 
   const maybeCompactConversation = async (): Promise<void> => {
     try {
@@ -515,11 +532,23 @@ export async function runCycle(options?: {
     // The session stays alive so the agent builds on its own thoughts.
     if (response.toolCalls.length === 0) {
       if (response.text.trim()) {
-        const journalTool = tools.find((t) => t.def.name === "journal");
-        if (journalTool) {
-          await journalTool.handler({ text: response.text });
-          toolCallCount += 1;
+        // Cross-turn repetition detection: if text is too similar to previous turn, force rest.
+        if (prevTextOutput && textSimilarity(prevTextOutput, response.text) > 0.6) {
+          noToolTurns += 3; // accelerate toward rest
+          const nudge: Message = {
+            role: "user",
+            content: `[system] 이전 턴과 거의 같은 내용을 반복하고 있다. 다른 행동을 해라 — 도구를 사용하거나, 새로운 질문을 탐구하라. 같은 생각을 되풀이하는 것은 낭비다.`,
+          };
+          messages.push(nudge);
+          await appendMessage(nudge);
+        } else {
+          const journalTool = tools.find((t) => t.def.name === "journal");
+          if (journalTool) {
+            await journalTool.handler({ text: response.text });
+            toolCallCount += 1;
+          }
         }
+        prevTextOutput = response.text;
         // Keep the text in conversation so next turn sees it.
         const assistantMsg: Message = {
           role: "assistant",
@@ -537,6 +566,7 @@ export async function runCycle(options?: {
       continue;
     }
     noToolTurns = 0;
+    prevTextOutput = "";
 
     // Build assistant message including tool_use blocks.
     const assistantBlocks: Array<

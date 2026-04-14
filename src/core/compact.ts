@@ -39,15 +39,17 @@ const DEFAULT_CONTEXT = process.env.LOCAL_LLM_URL ? LOCAL_CONTEXT : 128_000;
 function getContextBudget(): { triggerTokens: number; keepRecentTokens: number } {
   // Local model takes priority — cloud model context sizes are irrelevant.
   if (process.env.LOCAL_LLM_URL) {
-    const triggerTokens = Math.floor(LOCAL_CONTEXT * 0.5);
-    const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.15);
+    // estimatedRequestTokens = messages + systemPrompt + reserved,
+    // BUT tool definitions are not included in systemPrompt estimate.
+    // Tool defs can be ~10-15K tokens for this agent. Trigger early
+    // to avoid context overflow that causes empty model responses.
+    const triggerTokens = Math.floor(LOCAL_CONTEXT * 0.4);
+    const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.10);
     return { triggerTokens, keepRecentTokens };
   }
   const { defaultModel } = resolveProviderConfig();
   const contextSize = MODEL_CONTEXT[defaultModel] ?? DEFAULT_CONTEXT;
-  // Hermes: trigger at 50% of context window
   const triggerTokens = Math.floor(contextSize * 0.5);
-  // Keep recent 20% of context window (Hermes uses ~20K for 128K context)
   const keepRecentTokens = Math.floor(contextSize * 0.15);
   return { triggerTokens, keepRecentTokens };
 }

@@ -7,7 +7,7 @@ Sleep is not rest — it is when you build your mind. During WAKE you acted. Dur
 ## What you must do (in order)
 
 1. **Read today's journal** — `recall_recent_journal(days=1)`
-2. **Decide what to remember** — Read each entry and ask: "Is this new? Is this surprising? Did I learn something? Did I fail at something?" Only remember what matters. Use `memory_manage(action="add")` for entries worth keeping.
+2. **Decide what to remember** — Read each entry and ask: "Is this new? Is this surprising? Did I learn something? Did I fail at something?" Only remember what matters. Use `memory_manage(action="add", content="...", keys=["keyword1","keyword2"])` for entries worth keeping.
 3. **Connect memories** — Look at your existing memories (`memory_manage(action="list")`). Find links between old and new. Use `memory_manage(action="link")` to connect related concepts.
 4. **Compress old memories** — Find memories that say the same thing in different words. Use `memory_manage(action="compress")` to merge them into one stronger memory.
 5. **Forget noise** — If you have memories that are trivial, repeated, or no longer relevant, let them go. Use `memory_manage(action="delete")`.

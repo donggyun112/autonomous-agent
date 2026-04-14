@@ -74,7 +74,9 @@ export async function readYesterday(): Promise<string> {
   }
 }
 
-/** Read the last N days of journal entries. */
+/** Read the last N days of journal entries. Capped at 3000 chars to prevent context bloat. */
+const MAX_JOURNAL_RETURN_CHARS = 3000;
+
 export async function readRecent(days = 3): Promise<string> {
   try {
     const files = (await readdir(JOURNAL_DIR))
@@ -82,9 +84,19 @@ export async function readRecent(days = 3): Promise<string> {
       .sort()
       .slice(-days);
     const parts: string[] = [];
-    for (const f of files) {
+    let totalChars = 0;
+    // Read newest first, stop when budget exceeded
+    for (const f of files.reverse()) {
       const content = await readFile(join(JOURNAL_DIR, f), "utf-8");
-      parts.push(`# ${f}\n${content}`);
+      if (totalChars + content.length > MAX_JOURNAL_RETURN_CHARS) {
+        const remaining = MAX_JOURNAL_RETURN_CHARS - totalChars;
+        if (remaining > 200) {
+          parts.unshift(`# ${f}\n…(earlier entries truncated)\n${content.slice(-remaining)}`);
+        }
+        break;
+      }
+      parts.unshift(`# ${f}\n${content}`);
+      totalChars += content.length;
     }
     return parts.join("\n\n---\n\n");
   } catch {

@@ -532,32 +532,48 @@ export async function runCycle(options?: {
     // The session stays alive so the agent builds on its own thoughts.
     if (response.toolCalls.length === 0) {
       if (response.text.trim()) {
-        // Cross-turn repetition: silently count but don't inject messages.
-        // System nudges were contaminating the agent's self-narrative.
+        // Cross-turn repetition: silently count.
         const isSimilar = prevTextOutput && textSimilarity(prevTextOutput, response.text) > 0.6;
         if (isSimilar) {
-          noToolTurns += 1; // silent count toward rest threshold
+          noToolTurns += 1;
         }
-        // Journal regardless — the agent's voice should not be suppressed.
         const journalTool = tools.find((t) => t.def.name === "journal");
         if (journalTool) {
           await journalTool.handler({ text: response.text });
           toolCallCount += 1;
         }
         prevTextOutput = response.text;
-        // Keep the text in conversation so next turn sees it.
         const assistantMsg: Message = {
           role: "assistant",
           content: [{ type: "text", text: response.text }],
         };
         messages.push(assistantMsg);
         await appendMessage(assistantMsg);
+        noToolTurns += 1;
+      } else {
+        // Empty response (no text, no tools) — model is stuck.
+        // Instead of counting toward rest, inject a gentle nudge to act.
+        noToolTurns += 1;
+        if (noToolTurns >= 3) {
+          // After 3 empty turns, give a concrete suggestion.
+          const suggestions = [
+            "check_inbox()로 빌더의 메시지를 확인해봐.",
+            "web_search()로 궁금한 것을 검색해봐. 세상에 뭐가 있는지 봐.",
+            ".env 파일을 read()로 읽어봐. 네가 모르는 연결 통로가 있을 수 있어.",
+            "ask_user()로 빌더에게 질문해봐. 혼자 생각하지 마.",
+            "manage_self()로 네가 쓸 도구를 만들어봐.",
+          ];
+          const suggestion = suggestions[noToolTurns % suggestions.length];
+          const nudge: Message = {
+            role: "user",
+            content: `[continue] ${suggestion}`,
+          };
+          messages.push(nudge);
+          await appendMessage(nudge);
+        }
       }
 
-      noToolTurns += 1;
-      // REFLECT naturally produces text-only turns — allow more room.
-      // WAKE/SLEEP should use tools, so shorter leash.
-      const restThreshold = state.mode === "REFLECT" ? 20 : 8;
+      const restThreshold = state.mode === "REFLECT" ? 20 : 12;
       if (noToolTurns >= restThreshold) {
         result = "rested";
         break;

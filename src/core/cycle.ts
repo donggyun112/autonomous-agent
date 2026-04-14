@@ -831,6 +831,9 @@ export async function runCycle(options?: {
         } catch (err) {
           observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
         }
+        // Reload state — runSleepConsolidation calls resetAfterSleep
+        // which increments sleepCount and saves to disk.
+        state = await loadState();
       }
       result = "transitioned";
       break;

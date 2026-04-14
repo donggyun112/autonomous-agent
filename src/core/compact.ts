@@ -17,10 +17,31 @@ import { logSystem } from "./system-log.js";
 // Rough estimate: ~4 characters per token. We use char count instead of
 // calling the API counter every turn — fast, cheap, good enough.
 const CHARS_PER_TOKEN = 4;
-const COMPACT_TRIGGER_TOKENS = 20_000;
-const KEEP_RECENT_TOKENS = 8_000;
-const OPENAI_REQUEST_BUDGET_TOKENS = 16_000;
-const OPENAI_KEEP_RECENT_TOKENS = 6_000;
+
+// Hermes pattern: trigger compaction at 50% of model context window.
+// Model context sizes (tokens):
+const MODEL_CONTEXT: Record<string, number> = {
+  "gpt-4o": 128_000,
+  "gpt-4o-mini": 128_000,
+  "gpt-4.1-mini": 1_000_000,
+  "gpt-4.1-nano": 1_000_000,
+  "gpt-5.4-mini": 1_000_000,
+  "gpt-5.4-nano": 1_000_000,
+  "claude-sonnet-4-6": 200_000,
+  "claude-haiku-4-5-20251001": 200_000,
+  "claude-opus-4-6": 200_000,
+};
+const DEFAULT_CONTEXT = 128_000;
+
+function getContextBudget(): { triggerTokens: number; keepRecentTokens: number } {
+  const { defaultModel } = resolveProviderConfig();
+  const contextSize = MODEL_CONTEXT[defaultModel] ?? DEFAULT_CONTEXT;
+  // Hermes: trigger at 50% of context window
+  const triggerTokens = Math.floor(contextSize * 0.5);
+  // Keep recent 20% of context window (Hermes uses ~20K for 128K context)
+  const keepRecentTokens = Math.floor(contextSize * 0.15);
+  return { triggerTokens, keepRecentTokens };
+}
 
 // Hermes pattern: old tool results in the middle of conversation are rarely
 // useful. Before the expensive LLM summarization pass, we do a cheap pre-prune:
@@ -277,20 +298,15 @@ export async function compactIfNeeded(
   const estimatedRequestTokens =
     totalTokens + systemPromptTokens + reservedCompletionTokens;
 
-  const shouldCompact =
-    provider === "openai"
-      ? estimatedRequestTokens >= OPENAI_REQUEST_BUDGET_TOKENS
-      : totalTokens >= COMPACT_TRIGGER_TOKENS;
+  const { triggerTokens, keepRecentTokens } = getContextBudget();
+  const shouldCompact = estimatedRequestTokens >= triggerTokens;
 
   if (!shouldCompact) return null;
   if (messages.length < 4) {
     return null;
   }
 
-  const splitAt = findSplit(
-    messages,
-    provider === "openai" ? OPENAI_KEEP_RECENT_TOKENS : KEEP_RECENT_TOKENS,
-  );
+  const splitAt = findSplit(messages, keepRecentTokens);
   if (splitAt < 2) return null;
 
   // Pre-prune old tool outputs before LLM summarization (Hermes pattern).

@@ -102,6 +102,32 @@ const DEFAULT_MAX_OUTPUT_CHARS = 4000;
 const TOOL_OUTPUTS_DIR = join(DATA, "tool-outputs");
 
 // Truncate a tool output if it exceeds the cap, persisting the full version
+// ── Core access control ─────────────────────────────────────────────────
+// The agent MUST NOT modify core files directly. Only molt can do that.
+// These paths are protected from write_file, edit_file, and shell writes.
+const PROTECTED_PATHS = [
+  "src/core/",
+  "src/llm/",
+  "src/memory/",
+  "src/primitives/",
+  "src/cli.ts",
+  "src/ui/",
+  "Dockerfile",
+  "docker-compose.yml",
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
+];
+
+function isProtectedPath(filePath: string): boolean {
+  const { resolve: resolvePath } = require("path");
+  const abs = resolvePath(filePath);
+  const rel = abs.replace(resolvePath(".") + "/", "");
+  return PROTECTED_PATHS.some(p => rel.startsWith(p) || abs.includes(`/${p}`));
+}
+
+const CORE_BLOCK_MSG = "[error] 이 경로는 core 영역이다. 직접 수정 불가. molt를 통해서만 변경 가능. 수정 가능한 경로: src/extensions/, data/";
+
 // to disk and returning a preview + a path the agent can read() if it wants more.
 async function capToolResult(toolName: string, content: string, max: number): Promise<string> {
   if (content.length <= max) return content;
@@ -529,6 +555,7 @@ const writeFileTool: Tool = {
     const { resolve, dirname } = await import("path");
     const { mkdir: mkdirAsync, writeFile: writeFileAsync, stat: statAsync } = await import("fs/promises");
     const p = resolve(String(input.file_path ?? ""));
+    if (isProtectedPath(p)) return CORE_BLOCK_MSG;
     const content = String(input.content ?? "");
     try {
       await mkdirAsync(dirname(p), { recursive: true });
@@ -581,6 +608,7 @@ const editFileTool: Tool = {
     const { resolve } = await import("path");
     const { readFile: readFileAsync, writeFile: writeFileAsync } = await import("fs/promises");
     const p = resolve(String(input.file_path ?? ""));
+    if (isProtectedPath(p)) return CORE_BLOCK_MSG;
     const oldStr = String(input.old_string ?? "");
     const newStr = String(input.new_string ?? "");
     const replaceAll = input.replace_all === true;
@@ -1937,6 +1965,11 @@ const shellTool: Tool = {
   handler: async (input) => {
     const cmd = String(input.command ?? "").trim();
     if (!cmd) return "[error] command is required";
+    // Block shell writes to protected core paths
+    const writePatterns = /(>|>>|tee|mv|cp|rm|sed\s+-i|echo.*>)\s*.*\b(src\/core|src\/llm|src\/memory|src\/primitives|src\/cli|src\/ui|Dockerfile|docker-compose|package\.json|tsconfig)/;
+    if (writePatterns.test(cmd)) {
+      return CORE_BLOCK_MSG;
+    }
     const { spawn } = await import("child_process");
     const TIMEOUT_MS = 30_000;
     return new Promise<string>((resolve) => {

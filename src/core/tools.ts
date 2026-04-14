@@ -268,15 +268,21 @@ const memoryManageTool: Tool = {
     name: "memory_manage",
     description:
       "메모리 그래프를 직접 관리한다. 자동 정리 없음 — 네가 결정한다. " +
-      "action: list(메모리 목록+용량), compress(메모리 압축), delete(삭제), " +
+      "action: add(새 기억 추가, content+keys 필요), list(메모리 목록+용량), compress(메모리 압축), delete(삭제), " +
       "rekey(키 변경), link(두 메모리 연결). 용량이 80% 넘으면 정리해라.",
     input_schema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["list", "compress", "delete", "rekey", "link"],
+          enum: ["add", "list", "compress", "delete", "rekey", "link"],
           description: "수행할 작업",
+        },
+        content: { type: "string", description: "기억할 내용 (add)" },
+        keys: {
+          type: "array",
+          items: { type: "string" },
+          description: "검색 키워드 (add) — 나중에 이 키로 recall 가능",
         },
         memory_id: { type: "string", description: "대상 메모리 ID (compress/delete/rekey)" },
         compressed: { type: "string", description: "압축된 내용 (compress)" },
@@ -298,6 +304,12 @@ const memoryManageTool: Tool = {
     const totalChars = stats.activeMemoryCount * 200; // rough estimate
     const usagePct = Math.round((totalChars / MAX_MEMORY_CHARS) * 100);
     const usageNote = `[memory: ${stats.activeMemoryCount} memories, ${stats.keyCount} keys, ${stats.linkCount} links, ~${usagePct}% capacity]`;
+
+    if (action === "add" && input.content) {
+      const keys = Array.isArray(input.keys) ? (input.keys as string[]) : [String(input.content).slice(0, 30)];
+      await remember(String(input.content), keys);
+      return `${usageNote}\nadded memory with keys: ${keys.join(", ")}`;
+    }
 
     if (action === "list") {
       // Return memory list with IDs, keys, depth, access count
@@ -337,7 +349,7 @@ const memoryManageTool: Tool = {
       return `${usageNote}\nlinked: ${input.memory_id} ↔ ${input.target_id} via "${input.via}"`;
     }
 
-    return `${usageNote}\nunknown action: ${action}. use: list, compress, delete, rekey, link`;
+    return `${usageNote}\nunknown action: ${action}. use: add, list, compress, delete, rekey, link`;
   },
 };
 

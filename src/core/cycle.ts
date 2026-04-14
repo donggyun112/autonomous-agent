@@ -91,7 +91,7 @@ function modePromptFile(mode: Mode): string {
   switch (mode) {
     case "WAKE": return "wake.md";
     case "REFLECT": return "reflect.md";
-    case "SLEEP": return "dream.md";
+    case "SLEEP": return "sleep.md";
   }
 }
 
@@ -160,34 +160,16 @@ export async function runCycle(options?: {
     state = await transition(state, "SLEEP", `forced by sleep pressure (${pressure.combined.toFixed(2)})`);
   }
 
-  // SLEEP state: clear session (sleep is the natural session boundary),
-  // then run consolidation.
+  // SLEEP state: LLM-driven memory consolidation + automated cleanup.
+  // Phase 1: The agent manages its own memory via LLM loop (same as WAKE/REFLECT).
+  // Phase 2: Automated steps (wiki clustering, skill extraction, wake handoff).
   if (state.mode === "SLEEP") {
     await clearSession();
-    observer?.onTurnStart?.(0, "SLEEP");
     observer?.onSleepStart?.();
-    let sleepReport: SleepReport | undefined;
-    try {
-      sleepReport = await runSleepConsolidation();
-      if (sleepReport) {
-        observer?.onSleepEnd?.(sleepReport);
-      }
-    } catch (err) {
-      observer?.onToolEnd?.("(sleep error)", (err as Error).message);
-    }
-    observer?.onTurnEnd?.(0);
-    // Save trace for sleep cycle too.
-    endSpan(cycleSpan);
-    try { await saveTrace(state.sleepCount, state.cycle); } catch {}
-    const refreshed = await loadState();
-    return {
-      state: refreshed,
-      turns: 0,
-      reason: "slept",
-      toolCalls: 0,
-      sleepReport,
-      pressure: calculateSleepPressure(refreshed),
-    };
+    // Falls through to the main cycle loop below with mode="SLEEP".
+    // sleep.md prompt guides the agent to manage memory, then transition to WAKE.
+    // When transition(to="WAKE") is detected, runSleepConsolidation() runs
+    // for the automated parts before completing.
   }
 
   // Step 0 — Identity reconstitution. Always read whoAmI before doing anything.
@@ -791,9 +773,21 @@ export async function runCycle(options?: {
         state.wakeIntention = transitionRequested.wakeIntention;
         state.wakeContext = transitionRequested.wakeContext;
       }
+      // If transitioning from SLEEP → WAKE, run automated consolidation
+      // (wiki clustering, skill extraction, wake handoff) after the agent's
+      // LLM-driven memory management is complete.
+      const wasInSleep = state.mode === "SLEEP";
       state = await transition(state, transitionRequested.to, transitionRequested.reason, {
         wakeAfterMs: transitionRequested.wakeAfterMs,
       });
+      if (wasInSleep && transitionRequested.to === "WAKE") {
+        try {
+          const sleepReport = await runSleepConsolidation();
+          if (sleepReport) observer?.onSleepEnd?.(sleepReport);
+        } catch (err) {
+          observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
+        }
+      }
       result = "transitioned";
       break;
     }

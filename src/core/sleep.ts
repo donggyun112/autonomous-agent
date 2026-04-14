@@ -259,92 +259,10 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "wiki-init", message: (err as Error).message });
   }
 
-  // 0. Ingest today's journal entries into the memory graph.
-  // LLM-based key extraction: the sleeping mind reads each entry and picks
-  // meaningful concept keys (not static tokenization). This is the Hermes
-  // pattern — keys determine recall quality, so they deserve LLM attention.
-  const cursorFile = join(DATA, ".ingest-cursor");
-  try {
-    const todayText = await readToday();
-    if (todayText) {
-      let cursor = "";
-      try { cursor = (await readFile(cursorFile, "utf-8")).trim(); } catch { /* no cursor yet */ }
-
-      const entries = todayText.split(/\n(?=## \d{4}-\d{2}-\d{2}T)/).filter((e) => e.trim());
-
-      // Batch entries for LLM key extraction (max 5 at a time to save tokens)
-      const toIngest: Array<{ text: string; entryTs: string }> = [];
-      for (const entry of entries) {
-        const tsMatch = entry.match(/^## (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
-        const entryTs = tsMatch ? tsMatch[1] : "";
-        if (cursor && entryTs && entryTs <= cursor) continue;
-        const text = entry.replace(/^## \d{4}-\d{2}-\d{2}T[\d:.]+Z[^\n]*\n/, "").trim();
-        if (!text || text.length < 10) continue;
-        toIngest.push({ text, entryTs });
-      }
-
-      // Process in batches
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < toIngest.length; i += BATCH_SIZE) {
-        const batch = toIngest.slice(i, i + BATCH_SIZE);
-        const batchTexts = batch.map((b, idx) => `[${idx}] ${b.text.slice(0, 500)}`).join("\n\n");
-
-        // LLM extracts keys for each entry in the batch
-        let keysByEntry: string[][] = [];
-        try {
-          const keyResult = await thinkAux({
-            systemPrompt:
-              "You are the agent's sleeping mind. You read journal entries and extract " +
-              "3-6 concept keys per entry. Keys should be meaningful nouns or noun phrases " +
-              "that would help recall this memory later. NOT timestamps, NOT mode names " +
-              "(WAKE/REFLECT/SLEEP), NOT generic words (도구/행동/생각). " +
-              "Focus on: specific tool names, concrete outcomes, decisions made, errors encountered, " +
-              "concepts learned, people/systems mentioned. " +
-              "Respond as JSON array of arrays: [[\"key1\",\"key2\",...], [\"key1\",...], ...]",
-            messages: [{ role: "user", content: batchTexts }],
-            maxTokens: 300,
-          });
-          // Parse JSON response
-          const parsed = JSON.parse(
-            keyResult.text.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, ""),
-          );
-          if (Array.isArray(parsed)) keysByEntry = parsed;
-        } catch {
-          // Fallback: use static extraction if LLM fails
-          const { extractKeys } = await import("../memory/keys.js");
-          keysByEntry = batch.map(b => extractKeys(b.text));
-        }
-
-        // Ingest each entry with its LLM-extracted keys
-        for (let j = 0; j < batch.length; j++) {
-          const { text, entryTs } = batch[j];
-          let keys = keysByEntry[j] ?? [];
-          if (!Array.isArray(keys) || keys.length === 0) {
-            // Fallback
-            const { extractKeys } = await import("../memory/keys.js");
-            keys = extractKeys(text);
-          }
-          // Ensure all keys are strings
-          keys = keys.filter((k): k is string => typeof k === "string" && k.length > 1);
-          if (keys.length === 0) keys.push("thought");
-
-          try {
-            await remember(text, keys);
-            report.memoriesIngested += 1;
-            if (entryTs) await writeFile(cursorFile, entryTs, "utf-8");
-          } catch {
-            // skip individual failures
-          }
-        }
-      }
-      try { await rm(cursorFile); } catch { /* ok */ }
-    }
-  } catch (err) {
-    report.errors.push({ step: "journal-ingest", message: (err as Error).message });
-  }
-
-  // 1. Dream — REMOVED. Agent manages memory compression directly via
-  // memory_manage tool during REFLECT (Hermes pattern).
+  // 0. Journal ingest — REMOVED.
+  // The agent now manages memory during the SLEEP LLM loop via memory_manage.
+  // It reads its own journal and decides what to remember, connect, and forget.
+  // This replaces the hardcoded ingest pipeline with agent judgment.
 
   // 2. Cluster schemas → wiki pages.
   // Each cluster of memories that share keys becomes a wiki page. If a page

@@ -27,6 +27,7 @@ import { existsSync } from "fs";
 import { mkdir, readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { createInterface } from "readline/promises";
+import { spawn, type ChildProcess } from "child_process";
 import { runCycle } from "./core/cycle.js";
 import { popDueWake } from "./core/scheduled-wakes.js";
 import {

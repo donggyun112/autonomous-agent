@@ -17,5 +17,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "data", "generations", "reference"]
+  "exclude": ["node_modules", "dist", "data", "generations", "reference", "src/extensions/tools", "src/extensions/rituals"]
 }

@@ -149,7 +149,7 @@ async function capToolResult(toolName: string, content: string, max: number): Pr
 // ── Body tools ──────────────────────────────────────────────────────────
 
 const journal: Tool = {
-  states: ["WAKE", "REFLECT"],
+  states: ["WAKE", "REFLECT", "SLEEP"],
   def: {
     name: "journal",
     description:
@@ -264,7 +264,7 @@ const recallMemory: Tool = {
 const MAX_MEMORY_CHARS = 50_000; // soft cap — agent gets warned at 80%
 
 const memoryManageTool: Tool = {
-  states: ["WAKE", "REFLECT"],
+  states: ["WAKE", "REFLECT", "SLEEP"],
   def: {
     name: "memory_manage",
     description:
@@ -344,7 +344,7 @@ const memoryManageTool: Tool = {
 
 const recallRecentJournal: Tool = {
   preserveOnCompact: true,
-  states: ["REFLECT"],
+  states: ["REFLECT", "SLEEP"],
   def: {
     name: "recall_recent_journal",
     description:
@@ -399,7 +399,7 @@ const journalSearchTool: Tool = {
 };
 
 const updateWhoAmI: Tool = {
-  states: ["REFLECT"],
+  states: ["REFLECT", "SLEEP"],
   def: {
     name: "update_whoAmI",
     description:
@@ -805,7 +805,7 @@ const reviewActionsTool: Tool = {
 // ── Curiosity question ───────────────────────────────────────────────────
 
 const saveCuriosityTool: Tool = {
-  states: ["REFLECT"],
+  states: ["REFLECT", "SLEEP"],
   def: {
     name: "leave_question",
     description:
@@ -1147,7 +1147,7 @@ const wikiUpdateTool: Tool = {
   // just journal; during SLEEP the system compiles pages automatically. It
   // is only in REFLECT that the agent should deliberately shape what it
   // has come to believe about a concept.
-  states: ["REFLECT"],
+  states: ["REFLECT", "SLEEP"],
   def: {
     name: "wiki_update",
     description:

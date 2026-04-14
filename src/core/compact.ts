@@ -31,9 +31,18 @@ const MODEL_CONTEXT: Record<string, number> = {
   "claude-haiku-4-5-20251001": 200_000,
   "claude-opus-4-6": 200_000,
 };
-const DEFAULT_CONTEXT = 128_000;
+// Local models: use LOCAL_LLM_CONTEXT env or conservative default.
+// Small models (9B) can technically handle 262K but degrade after ~32K.
+const LOCAL_CONTEXT = parseInt(process.env.LOCAL_LLM_CONTEXT ?? "32000", 10);
+const DEFAULT_CONTEXT = process.env.LOCAL_LLM_URL ? LOCAL_CONTEXT : 128_000;
 
 function getContextBudget(): { triggerTokens: number; keepRecentTokens: number } {
+  // Local model takes priority — cloud model context sizes are irrelevant.
+  if (process.env.LOCAL_LLM_URL) {
+    const triggerTokens = Math.floor(LOCAL_CONTEXT * 0.5);
+    const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.15);
+    return { triggerTokens, keepRecentTokens };
+  }
   const { defaultModel } = resolveProviderConfig();
   const contextSize = MODEL_CONTEXT[defaultModel] ?? DEFAULT_CONTEXT;
   // Hermes: trigger at 50% of context window

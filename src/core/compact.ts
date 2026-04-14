@@ -17,10 +17,10 @@ import { logSystem } from "./system-log.js";
 // Rough estimate: ~4 characters per token. We use char count instead of
 // calling the API counter every turn — fast, cheap, good enough.
 const CHARS_PER_TOKEN = 4;
-const COMPACT_TRIGGER_TOKENS = 30_000;
-const KEEP_RECENT_TOKENS = 12_000;
-const OPENAI_REQUEST_BUDGET_TOKENS = 24_000;
-const OPENAI_KEEP_RECENT_TOKENS = 8_000;
+const COMPACT_TRIGGER_TOKENS = 20_000;
+const KEEP_RECENT_TOKENS = 8_000;
+const OPENAI_REQUEST_BUDGET_TOKENS = 16_000;
+const OPENAI_KEEP_RECENT_TOKENS = 6_000;
 
 // Hermes pattern: old tool results in the middle of conversation are rarely
 // useful. Before the expensive LLM summarization pass, we do a cheap pre-prune:

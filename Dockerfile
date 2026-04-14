@@ -47,7 +47,13 @@ COPY src ./src
 # Create empty targets so path resolution inside the container works.
 RUN mkdir -p /agent/data /agent/generations
 
-# Default command runs the daemon. Override with `docker run ... cycle` or
-# `docker run ... status` etc.
-ENTRYPOINT ["pnpm", "exec", "tsx", "src/cli.ts"]
+# Git credential setup at runtime from env vars (GIT_USER + GIT_TOKEN)
+RUN printf '#!/bin/sh\n\
+if [ -n "$GIT_TOKEN" ] && [ -n "$GIT_USER" ]; then\n\
+  git config --global credential.helper store\n\
+  echo "https://${GIT_USER}:${GIT_TOKEN}@github.com" > ~/.git-credentials\n\
+fi\n\
+exec pnpm exec tsx src/cli.ts "$@"\n' > /agent/entrypoint.sh && chmod +x /agent/entrypoint.sh
+
+ENTRYPOINT ["/agent/entrypoint.sh"]
 CMD ["live"]

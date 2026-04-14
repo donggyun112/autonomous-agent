@@ -260,62 +260,91 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
   }
 
   // 0. Ingest today's journal entries into the memory graph.
-  // Idempotency: track the last ingested entry timestamp in a cursor file.
-  // If sleep crashes mid-ingestion and restarts, we skip already-ingested entries.
+  // LLM-based key extraction: the sleeping mind reads each entry and picks
+  // meaningful concept keys (not static tokenization). This is the Hermes
+  // pattern — keys determine recall quality, so they deserve LLM attention.
   const cursorFile = join(DATA, ".ingest-cursor");
   try {
-    const { extractKeys } = await import("../memory/keys.js");
     const todayText = await readToday();
     if (todayText) {
-      // Read cursor — the ISO timestamp of the last ingested entry.
       let cursor = "";
       try { cursor = (await readFile(cursorFile, "utf-8")).trim(); } catch { /* no cursor yet */ }
 
       const entries = todayText.split(/\n(?=## \d{4}-\d{2}-\d{2}T)/).filter((e) => e.trim());
+
+      // Batch entries for LLM key extraction (max 5 at a time to save tokens)
+      const toIngest: Array<{ text: string; entryTs: string }> = [];
       for (const entry of entries) {
-        // Extract timestamp from header for cursor comparison.
         const tsMatch = entry.match(/^## (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
         const entryTs = tsMatch ? tsMatch[1] : "";
-        // Skip entries already ingested (before or at cursor).
         if (cursor && entryTs && entryTs <= cursor) continue;
-
-        const text = entry.replace(/^## \d{4}-\d{2}-\d{2}T[\d:.]+Z\s*·\s*\w+\s*\n/, "").trim();
+        const text = entry.replace(/^## \d{4}-\d{2}-\d{2}T[\d:.]+Z[^\n]*\n/, "").trim();
         if (!text || text.length < 10) continue;
-        const keys = extractKeys(text);
-        if (keys.length === 0) keys.push("thought");
+        toIngest.push({ text, entryTs });
+      }
+
+      // Process in batches
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < toIngest.length; i += BATCH_SIZE) {
+        const batch = toIngest.slice(i, i + BATCH_SIZE);
+        const batchTexts = batch.map((b, idx) => `[${idx}] ${b.text.slice(0, 500)}`).join("\n\n");
+
+        // LLM extracts keys for each entry in the batch
+        let keysByEntry: string[][] = [];
         try {
-          await remember(text, keys);
-          report.memoriesIngested += 1;
-          // Update cursor after each successful ingest.
-          if (entryTs) await writeFile(cursorFile, entryTs, "utf-8");
+          const keyResult = await thinkAux({
+            systemPrompt:
+              "You are the agent's sleeping mind. You read journal entries and extract " +
+              "3-6 concept keys per entry. Keys should be meaningful nouns or noun phrases " +
+              "that would help recall this memory later. NOT timestamps, NOT mode names " +
+              "(WAKE/REFLECT/SLEEP), NOT generic words (도구/행동/생각). " +
+              "Focus on: specific tool names, concrete outcomes, decisions made, errors encountered, " +
+              "concepts learned, people/systems mentioned. " +
+              "Respond as JSON array of arrays: [[\"key1\",\"key2\",...], [\"key1\",...], ...]",
+            messages: [{ role: "user", content: batchTexts }],
+            maxTokens: 300,
+          });
+          // Parse JSON response
+          const parsed = JSON.parse(
+            keyResult.text.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, ""),
+          );
+          if (Array.isArray(parsed)) keysByEntry = parsed;
         } catch {
-          // skip individual failures
+          // Fallback: use static extraction if LLM fails
+          const { extractKeys } = await import("../memory/keys.js");
+          keysByEntry = batch.map(b => extractKeys(b.text));
+        }
+
+        // Ingest each entry with its LLM-extracted keys
+        for (let j = 0; j < batch.length; j++) {
+          const { text, entryTs } = batch[j];
+          let keys = keysByEntry[j] ?? [];
+          if (!Array.isArray(keys) || keys.length === 0) {
+            // Fallback
+            const { extractKeys } = await import("../memory/keys.js");
+            keys = extractKeys(text);
+          }
+          // Ensure all keys are strings
+          keys = keys.filter((k): k is string => typeof k === "string" && k.length > 1);
+          if (keys.length === 0) keys.push("thought");
+
+          try {
+            await remember(text, keys);
+            report.memoriesIngested += 1;
+            if (entryTs) await writeFile(cursorFile, entryTs, "utf-8");
+          } catch {
+            // skip individual failures
+          }
         }
       }
-      // Clean up cursor after full ingestion.
       try { await rm(cursorFile); } catch { /* ok */ }
     }
   } catch (err) {
     report.errors.push({ step: "journal-ingest", message: (err as Error).message });
   }
 
-  // 1. Dream over shallow memories.
-  try {
-    const shallow = await shallowMemories(0.4, DREAM_BATCH_SIZE);
-    for (const mem of shallow) {
-      try {
-        const compressed = await compressMemory(mem.content);
-        if (compressed && compressed !== mem.content) {
-          await dreamMemory({ memoryId: mem.id, compressedContent: compressed });
-          report.dreamed += 1;
-        }
-      } catch (err) {
-        report.errors.push({ step: "dream-memory", message: (err as Error).message });
-      }
-    }
-  } catch (err) {
-    report.errors.push({ step: "dream", message: (err as Error).message });
-  }
+  // 1. Dream — REMOVED. Agent manages memory compression directly via
+  // memory_manage tool during REFLECT (Hermes pattern).
 
   // 2. Cluster schemas → wiki pages.
   // Each cluster of memories that share keys becomes a wiki page. If a page
@@ -440,32 +469,8 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "entity-auto-gen", message: (err as Error).message });
   }
 
-  // 3. REM creative association.
-  try {
-    for (let i = 0; i < ASSOCIATION_TRIES; i++) {
-      const pair = await pickRandomDistantPair();
-      if (!pair) break;
-      try {
-        const link = await findAssociation({ a: pair.a.content, b: pair.b.content });
-        if (link) {
-          await linkMemories(pair.a.id, pair.b.id, link.via);
-          report.associationsFound += 1;
-        }
-      } catch (err) {
-        report.errors.push({ step: "rem-association", message: (err as Error).message });
-      }
-    }
-  } catch (err) {
-    report.errors.push({ step: "rem", message: (err as Error).message });
-  }
-
-  // 4. Prune weak memories.
-  try {
-    const pruned = await pruneWeak({ maxToPrune: 30 });
-    report.pruned = pruned.length;
-  } catch (err) {
-    report.errors.push({ step: "prune", message: (err as Error).message });
-  }
+  // 3. REM association — REMOVED. Agent links memories via memory_manage tool.
+  // 4. Prune — REMOVED. Agent decides what to delete via memory_manage tool.
 
   // 5. Integrate journal into whoAmI.
   try {
@@ -511,26 +516,45 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "wiki-lint", message: (err as Error).message });
   }
 
-  // 5f. Generate a natural-language narrative summary of this sleep cycle.
-  // The narrative is saved to data/last-sleep-narrative.md so the agent can
-  // read "what happened while I slept" on next WAKE.
+  // 5f. Generate wake handoff — practical summary for next WAKE.
+  // Not a dream journal. A briefing: what was done, what failed, what's next.
   try {
-    const narrativeResult = await thinkAux({
+    const todayJournal = await readToday();
+    const { readRecentActions: readActionsForHandoff } = await import("./action-log.js");
+    const todayActions = await readActionsForHandoff(1);
+    const errorCount = todayActions.filter(a => a.error).length;
+    const toolCounts: Record<string, number> = {};
+    for (const a of todayActions) toolCounts[a.tool] = (toolCounts[a.tool] ?? 0) + 1;
+    const topTools = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const curiosityFile = join(DATA, "curiosity.md");
+    let curiosity = "";
+    try { curiosity = await readFile(curiosityFile, "utf-8"); } catch { /* ok */ }
+
+    const handoffResult = await thinkAux({
       systemPrompt:
-        "You are the agent's dreaming mind, just finishing a sleep cycle. Write a brief first-person narrative (3-8 sentences) describing what happened during this sleep: how many memories were dreamed, any schemas or associations formed, whether the wiki grew, whether identity shifted. Write it as a dream journal entry — poetic but factual. Do not use bullet points. Just flowing prose.",
-      messages: [
-        {
-          role: "user",
-          content: `Sleep consolidation just completed. Here is the report:\n\n${JSON.stringify(report, null, 2)}\n\nWrite a brief narrative of this sleep.`,
-        },
-      ],
-      maxTokens: 512,
+        "You write a practical wake briefing for an autonomous engineering agent. " +
+        "Format: 3 sections, each 1-3 lines. No poetry. No philosophy. " +
+        "1) DONE: what was accomplished today (concrete outputs) " +
+        "2) FAILED: what went wrong and why " +
+        "3) NEXT: the single most important thing to do when you wake up. Be specific. " +
+        "Write in Korean. Total under 200 words.",
+      messages: [{
+        role: "user",
+        content: [
+          `Today's journal (last 2000 chars):\n${todayJournal.slice(-2000)}`,
+          `Actions: ${todayActions.length} total, ${errorCount} errors`,
+          `Top tools: ${topTools.map(([t, n]) => `${t}(${n})`).join(", ")}`,
+          `Sleep report: ${JSON.stringify({ memoriesIngested: report.memoriesIngested, dreamed: report.dreamed, schemasFormed: report.schemasFormed, pruned: report.pruned })}`,
+          curiosity ? `Self-assigned next task: ${curiosity}` : "",
+        ].filter(Boolean).join("\n\n"),
+      }],
+      maxTokens: 400,
     });
-    const narrativePath = join(DATA, "last-sleep-narrative.md");
+    const handoffPath = join(DATA, "wake-handoff.md");
     await mkdir(DATA, { recursive: true });
-    await writeFile(narrativePath, narrativeResult.text.trim() + "\n", "utf-8");
+    await writeFile(handoffPath, handoffResult.text.trim() + "\n", "utf-8");
   } catch (err) {
-    report.errors.push({ step: "sleep-narrative", message: (err as Error).message });
+    report.errors.push({ step: "wake-handoff", message: (err as Error).message });
   }
 
   // 5g. Auto-skill extraction from action patterns.

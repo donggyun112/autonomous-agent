@@ -77,7 +77,7 @@ import {
   initSessionMeta,
 } from "./session-store.js";
 import { runSleepConsolidation, type SleepReport } from "./sleep.js";
-import { SRC } from "../primitives/paths.js";
+import { DATA, SRC } from "../primitives/paths.js";
 import { logSystem } from "./system-log.js";
 import { logCycleCost } from "./action-log.js";
 
@@ -287,6 +287,19 @@ export async function runCycle(options?: {
     await saveState(state);
   }
 
+  // Wake handoff — practical briefing from sleep consolidation.
+  // Contains: DONE (what was accomplished), FAILED (what broke), NEXT (priority).
+  let wakeHandoffBlock = "";
+  if (state.mode === "WAKE") {
+    try {
+      const handoffPath = join(DATA, "wake-handoff.md");
+      const handoff = await readFile(handoffPath, "utf-8");
+      if (handoff.trim()) {
+        wakeHandoffBlock = ["---", "## briefing from your past self", "", handoff.trim()].join("\n");
+      }
+    } catch { /* no handoff yet */ }
+  }
+
   // Ritual blocks — periodic practices the agent gave itself.
   let ritualBlock = "";
   try {
@@ -367,15 +380,23 @@ export async function runCycle(options?: {
     `Extended tools (load via more_tools): ${extendedToolNames().join(", ")}`,
     inboxAlert,
     "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
+    "---",
+    `## token budget`,
+    `총 사용: input=${state.tokensUsed.input.toLocaleString()} / output=${state.tokensUsed.output.toLocaleString()}`,
+    `사이클당 평균 input: ${state.cycle > 0 ? Math.round(state.tokensUsed.input / state.cycle).toLocaleString() : "N/A"}`,
+    `토큰은 한정된 자원이다. 낭비하면 너는 멈춘다.`,
+    `규칙: journal은 1-2문장. 생각은 짧게. 같은 도구를 반복 호출하지 마라. recall/wiki_list를 2회 이상 하지 마라. 행동이 아닌 확인은 토큰 낭비다.`,
   ];
 
   // Optional sections in priority order (lowest priority first = dropped first).
+  // Higher priority = added later = dropped last.
   const optionalSections = [
     curiosityBlocks,
     ritualBlock,
     extensionsBlock,
     wakeIntentionBlock,
     dailyLogBlock,
+    wakeHandoffBlock,  // highest priority — yesterday's briefing
   ];
 
   let systemPrompt = essentialSections.filter(Boolean).join("\n\n");
@@ -420,14 +441,31 @@ export async function runCycle(options?: {
   // Only start fresh if no prior session exists.
   let messages: Message[] = await loadSession();
   if (messages.length === 0) {
-    const opening: Message = {
-      role: "user",
-      content: `You are now ${state.mode}. Begin.`,
-    };
+    // Fresh session — build context-rich opening.
+    let openingParts = [`You are now ${state.mode}. day ${state.sleepCount}, cycle ${state.cycle}, moment ${state.totalTurns}.`];
+    // Inject wake handoff if available
+    try {
+      const handoff = await readFile(join(DATA, "wake-handoff.md"), "utf-8");
+      if (handoff.trim()) openingParts.push(`\nBriefing from your past self:\n${handoff.trim()}`);
+    } catch { /* ok */ }
+    // Inject curiosity question if available
+    try {
+      const curiosity = await readFile(join(DATA, "curiosity.md"), "utf-8");
+      if (curiosity.trim()) openingParts.push(`\nQuestion you left for yourself:\n${curiosity.trim()}`);
+    } catch { /* ok */ }
+    openingParts.push("\nBegin.");
+    const opening: Message = { role: "user", content: openingParts.join("\n") };
     messages = [opening];
     await appendMessage(opening);
   } else {
+    // Restored session — inject restart context so agent knows it was interrupted.
     observer?.onSessionRestore?.(messages.length);
+    const restartCtx: Message = {
+      role: "user",
+      content: `[system] 컨테이너가 재시작되었다. 세션이 복원됨 (${messages.length} messages). 현재: ${state.mode}, day ${state.sleepCount}, moment ${state.totalTurns}. 이전 작업을 이어가라. 처음부터 다시 시작하지 마라.`,
+    };
+    messages.push(restartCtx);
+    await appendMessage(restartCtx);
   }
 
   // Initialize session meta for continuity tracking.
@@ -581,10 +619,19 @@ export async function runCycle(options?: {
       observer?.onToolStart?.(call.name, call.input);
       const toolSpan = startSpan(call.name, cycleSpan);
       const toolStart = Date.now();
-      const { result: out, raw: rawOut } = await dispatchTool(tools, call);
+      let out: string;
+      let rawOut: string;
+      try {
+        const dispatched = await dispatchTool(tools, call);
+        out = dispatched.result;
+        rawOut = dispatched.raw;
+      } catch (dispatchErr) {
+        // Fallback: ensure we ALWAYS produce a tool_result, even if dispatch crashes.
+        out = `(tool error: ${(dispatchErr as Error).message})`;
+        rawOut = out;
+      }
       const toolDuration = Date.now() - toolStart;
       endSpan(toolSpan, { duration: toolDuration });
-      // Observer sees full (raw) output; LLM gets capped version.
       observer?.onToolEnd?.(call.name, rawOut);
 
       // Dead-letter queue: failed tool calls queued for later retry.

@@ -128,7 +128,12 @@ export class LocalAdapter implements LlmAdapter {
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
       stream: true,
-      repetition_penalty: 1.3,
+      top_k: 20,
+      top_p: 0.8,
+      repetition_penalty: 1.1,
+      repetition_context_size: 256,
+      presence_penalty: 1.5,
+      presence_context_size: 256,
     };
 
     const oaiTools = toOpenAITools(args.tools);

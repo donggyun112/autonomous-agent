@@ -120,9 +120,8 @@ const PROTECTED_PATHS = [
 ];
 
 function isProtectedPath(filePath: string): boolean {
-  const { resolve: resolvePath } = require("path");
-  const abs = resolvePath(filePath);
-  const rel = abs.replace(resolvePath(".") + "/", "");
+  const abs = resolve(filePath);
+  const rel = abs.replace(resolve(".") + "/", "");
   return PROTECTED_PATHS.some(p => rel.startsWith(p) || abs.includes(`/${p}`));
 }
 

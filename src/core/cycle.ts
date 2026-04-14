@@ -459,6 +459,7 @@ export async function runCycle(options?: {
 
   let toolCallCount = 0;
   let result: CycleResult["reason"] = "turn_budget";
+  let noToolTurns = 0;
   const recentCalls: Array<{ name: string; inputKey: string }> = [];
 
   const maybeCompactConversation = async (): Promise<void> => {
@@ -510,18 +511,32 @@ export async function runCycle(options?: {
     state.modeTurn += 1;
     state.totalTurns += 1;
 
-    // If the response had no tool calls, auto-journal the text.
+    // If the response had no tool calls, auto-journal and continue.
+    // The session stays alive so the agent builds on its own thoughts.
     if (response.toolCalls.length === 0) {
-      if ((state.mode === "WAKE" || state.mode === "REFLECT") && response.text.trim()) {
+      if (response.text.trim()) {
         const journalTool = tools.find((t) => t.def.name === "journal");
         if (journalTool) {
           await journalTool.handler({ text: response.text });
           toolCallCount += 1;
         }
+        // Keep the text in conversation so next turn sees it.
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: [{ type: "text", text: response.text }],
+        };
+        messages.push(assistantMsg);
+        await appendMessage(assistantMsg);
       }
-      result = "rested";
-      break;
+
+      noToolTurns += 1;
+      if (noToolTurns >= 5) {
+        result = "rested";
+        break;
+      }
+      continue;
     }
+    noToolTurns = 0;
 
     // Build assistant message including tool_use blocks.
     const assistantBlocks: Array<
@@ -803,12 +818,9 @@ export async function runCycle(options?: {
   endSpan(cycleSpan);
   try { await saveTrace(state.sleepCount, state.cycle); } catch {}
 
-  // A rested cycle is a complete pause point, not a suspended mid-thought.
-  // Clearing the session here prevents the next live-loop iteration from
-  // replaying the same short tool sequence over and over.
-  if (result === "rested") {
-    await clearSession();
-  }
+  // Session persists across rested cycles so the agent remembers what it
+  // already thought. Without this, each cycle starts fresh and the agent
+  // repeats the same first thoughts forever (the "amnesia loop").
 
   // Log cycle end.
   try {

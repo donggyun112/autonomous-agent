@@ -91,7 +91,7 @@ const DEFAULT_STATE: AgentState = {
 // At pressure >= FORCE_THRESHOLD the daemon transitions to SLEEP regardless of
 // the agent's wishes — this is the "physics overrides will" moment.
 
-export const MAX_AWAKE_MS = 16 * 60 * 60 * 1000; // 16 hours
+export const MAX_AWAKE_MS = 4 * 60 * 60 * 1000; // 4 hours — shorter for local models with frequent restarts
 export const FORCE_THRESHOLD = 1.0;
 export const STRONG_THRESHOLD = 0.8;
 export const SOFT_THRESHOLD = 0.5;

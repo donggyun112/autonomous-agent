@@ -855,6 +855,18 @@ export async function runCycle(options?: {
   // Session persists across rested cycles so the agent remembers what it
   // already thought. Without this, each cycle starts fresh and the agent
   // repeats the same first thoughts forever (the "amnesia loop").
+  // However, if the session has grown too large, force compaction now
+  // so the next cycle doesn't start with a context-overflowed session.
+  if (result === "rested" && messages.length > 10) {
+    try {
+      const compacted = await compactIfNeeded(messages, systemPrompt, {
+        reservedCompletionTokens: 4096,
+      });
+      if (compacted) {
+        await replaceSession(compacted.newMessages);
+      }
+    } catch { /* compaction failure should not crash */ }
+  }
 
   // Log cycle end.
   try {

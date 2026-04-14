@@ -63,5 +63,7 @@ services:
       - ./pnpm-lock.yaml:/agent/pnpm-lock.yaml
       - ./tsconfig.json:/agent/tsconfig.json
       - ./vitest.config.ts:/agent/vitest.config.ts
+      # .env readable by agent (env_file only injects vars, not the file itself)
+      - ./.env:/agent/.env:ro
       # Shared /tmp — agent can leave files here that the host can see.
       - ./shared:/tmp/shared

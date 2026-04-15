@@ -295,6 +295,54 @@ Rules:
 
 Write in the agent's own first-person voice.`;
 
+// ── Stage 1: Microcompact (no LLM call) ─────────────────────────────────
+// Clear old tool_result content in-place. Cheapest possible reduction.
+// Returns mutated messages + tokens saved. Does NOT change message count.
+function microcompact(messages: Message[], keepRecentCount: number): { messages: Message[]; saved: number } {
+  const toolIdMap = buildToolUseIdMap(messages);
+  let saved = 0;
+  const boundary = Math.max(0, messages.length - keepRecentCount);
+  const result = messages.map((m, i) => {
+    if (i >= boundary) return m; // keep recent verbatim
+    if (m.role !== "user" || typeof m.content === "string" || !Array.isArray(m.content)) return m;
+    const hasToolResult = m.content.some((b) => "type" in b && b.type === "tool_result");
+    if (!hasToolResult) return m;
+    return {
+      ...m,
+      content: m.content.map((b) => {
+        if ("type" in b && b.type === "tool_result") {
+          const toolUseId = "tool_use_id" in b ? (b as { tool_use_id: string }).tool_use_id : "";
+          const toolName = toolIdMap.get(toolUseId) ?? "";
+          if (toolName && isToolPreserved(toolName)) return b;
+          const oldLen = typeof b.content === "string" ? b.content.length : 0;
+          if (oldLen <= PRUNED_PLACEHOLDER.length) return b; // already pruned
+          saved += Math.ceil((oldLen - PRUNED_PLACEHOLDER.length) / CHARS_PER_TOKEN);
+          return { ...b, content: PRUNED_PLACEHOLDER };
+        }
+        return b;
+      }),
+    } as Message;
+  });
+  return { messages: result, saved };
+}
+
+// ── Stage 3: PTL fallback (no LLM call) ─────────────────────────────────
+// If compact itself would be too large, drop oldest messages until under budget.
+function truncateOldest(messages: Message[], targetTokens: number): Message[] {
+  let total = estimateTokens(messages);
+  let dropIdx = 0;
+  while (total > targetTokens && dropIdx < messages.length - 2) {
+    total -= estimateTokens([messages[dropIdx]]);
+    dropIdx++;
+  }
+  if (dropIdx === 0) return messages;
+  const marker: Message = {
+    role: "user",
+    content: `[${dropIdx} older messages truncated to fit context]`,
+  };
+  return [marker, ...messages.slice(dropIdx)];
+}
+
 export async function compactIfNeeded(
   messages: Message[],
   systemPromptForContext: string,
@@ -303,7 +351,6 @@ export async function compactIfNeeded(
     toolDefsTokens?: number;
   },
 ): Promise<CompactResult | null> {
-  const provider = resolveProviderConfig().provider;
   const totalTokens = estimateTokens(messages);
   const systemPromptTokens = estimateTextTokens(systemPromptForContext);
   const reservedCompletionTokens = options?.reservedCompletionTokens ?? 4096;
@@ -312,65 +359,90 @@ export async function compactIfNeeded(
     totalTokens + systemPromptTokens + reservedCompletionTokens + toolDefsTokens;
 
   const { triggerTokens, keepRecentTokens } = getContextBudget();
-  const shouldCompact = estimatedRequestTokens >= triggerTokens;
 
-  if (!shouldCompact) return null;
-  if (messages.length < 4) {
-    return null;
+  if (estimatedRequestTokens < triggerTokens) return null;
+  if (messages.length < 4) return null;
+
+  // ── Stage 1: Microcompact ────────────────────────────────────────────
+  // Clear old tool results without LLM call. Often enough by itself.
+  const keepRecentCount = Math.max(4, Math.floor(messages.length * 0.4));
+  const micro = microcompact(messages, keepRecentCount);
+  const afterMicroTokens = totalTokens - micro.saved;
+
+  if (afterMicroTokens + systemPromptTokens + reservedCompletionTokens + toolDefsTokens < triggerTokens) {
+    // Microcompact alone was enough — no LLM call needed
+    try {
+      await logSystem({ ts: new Date().toISOString(), event: "microcompact", before: totalTokens, after: afterMicroTokens });
+    } catch {}
+    return {
+      before: totalTokens,
+      after: afterMicroTokens,
+      summarizedCount: 0,
+      newMessages: micro.messages,
+    };
   }
 
-  const splitAt = findSplit(messages, keepRecentTokens);
+  // ── Stage 2: LLM summarization ──────────────────────────────────────
+  const splitAt = findSplit(micro.messages, keepRecentTokens);
   if (splitAt < 2) return null;
 
-  // Pre-prune old tool outputs before LLM summarization (Hermes pattern).
-  const pruned = prePruneToolOutputs(messages, splitAt);
-  const older = pruned.slice(0, splitAt);
-  const recent = pruned.slice(splitAt);
-
-  // Extract tool actions from older messages before they are summarized,
-  // so the LLM can populate the "## Actions taken" section.
+  const older = micro.messages.slice(0, splitAt);
+  const recent = micro.messages.slice(splitAt);
   const toolActionsSummary = extractToolActions(older);
 
-  // Build the prompt — incremental if we have a previous summary, fresh otherwise.
   const isIncremental = _previousSummary !== null;
   const promptParts = [
     isIncremental ? UPDATE_SUMMARY_PROMPT : FRESH_SUMMARY_PROMPT,
   ];
   if (isIncremental) {
-    promptParts.push(
-      "",
-      "--- previous summary ---",
-      _previousSummary!,
-      "--- end previous summary ---",
-    );
+    promptParts.push("", "--- previous summary ---", _previousSummary!, "--- end previous summary ---");
   }
   promptParts.push(
-    "",
-    "--- tool actions in these messages ---",
-    toolActionsSummary,
-    "--- end tool actions ---",
-    "",
-    "--- older messages ---",
-    messagesAsText(older),
-    "--- end ---",
+    "", "--- tool actions ---", toolActionsSummary, "--- end tool actions ---",
+    "", "--- older messages ---", messagesAsText(older), "--- end ---",
   );
 
-  const result = await think({
-    systemPrompt: systemPromptForContext,
-    messages: [{ role: "user", content: promptParts.join("\n") }],
-    maxTokens: 1536,
-  });
+  let summaryText: string;
+  try {
+    const result = await think({
+      systemPrompt: systemPromptForContext,
+      messages: [{ role: "user", content: promptParts.join("\n") }],
+      maxTokens: 1536,
+    });
+    summaryText = result.text.trim();
+  } catch {
+    // Stage 2 failed — fall through to Stage 3
+    summaryText = "";
+  }
 
-  const summaryText = result.text.trim();
-  // Save for next compaction within this cycle.
-  _previousSummary = summaryText;
+  _previousSummary = summaryText || _previousSummary;
 
+  // Build post-compact messages: summary + recent
   const synthetic: Message = {
     role: "user",
-    content: `[earlier in this cycle, you thought:]\n\n${summaryText}`,
+    content: summaryText
+      ? `[earlier in this cycle, you thought:]\n\n${summaryText}`
+      : `[earlier messages summarized — ${older.length} messages compressed]`,
   };
 
-  const newMessages: Message[] = [synthetic, ...recent];
+  let newMessages: Message[] = [synthetic, ...recent];
+
+  // ── Post-compact: re-inject identity context ────────────────────────
+  // After compaction, the agent loses context about who it is. Re-inject
+  // a brief identity reminder so continuity isn't broken.
+  const identityReminder: Message = {
+    role: "user",
+    content: `[system] 컨텍스트가 압축되었다. 현재 상태를 확인하려면 recall_self()와 check_inbox()를 사용해라.`,
+  };
+  newMessages = [synthetic, identityReminder, ...recent];
+
+  // ── Stage 3: PTL fallback ───────────────────────────────────────────
+  // If still too large after summarization, force-truncate oldest.
+  const afterSummaryTokens = estimateTokens(newMessages);
+  const maxSafe = triggerTokens - systemPromptTokens - toolDefsTokens - reservedCompletionTokens;
+  if (afterSummaryTokens > maxSafe && maxSafe > 0) {
+    newMessages = truncateOldest(newMessages, maxSafe);
+  }
 
   const compactResult: CompactResult = {
     before: totalTokens,
@@ -387,9 +459,7 @@ export async function compactIfNeeded(
       after: compactResult.after,
       summarizedCount: compactResult.summarizedCount,
     });
-  } catch {
-    // logging must never crash the caller
-  }
+  } catch {}
 
   return compactResult;
 }

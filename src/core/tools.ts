@@ -2167,54 +2167,64 @@ const webFetchTool: Tool = {
 
 // ── Core tools: always loaded. These are the essential verbs. ────────────
 const CORE_TOOLS: Tool[] = [
+  // Essential — always loaded (~8K tokens instead of ~22K)
   journal,
   recallSelf,
   recallMemory,
-  memoryManageTool,
-  recallRecentJournal,
-  updateWhoAmI,
   readFileTool,
-  writeFileTool,
-  editFileTool,
-  globTool,
-  grepTool,
-  wikiListTool,
-  wikiReadTool,
-  wikiUpdateTool,
   webSearchTool,
-  askUserTool,
-  consultOracleTool,
   checkInboxTool,
-  manageSelfTool,
-  saveCuriosityTool,
-  findFilesTool,
-  todoTool,
+  askUserTool,
   shellTool,
-  webFetchTool,
   transitionTool,
   finishMode,
 ];
 
 // ── Extended tools: loaded on-demand via `more_tools` meta-tool. ────────
-// These are available but not sent to the LLM by default, saving ~25K tokens/call.
+// These are available but not sent to the LLM by default, saving context.
+// Use more_tools(action="activate_category", name="wiki") to load a group.
 const EXTENDED_TOOLS: Tool[] = [
-  journalSearchTool,
-  checkContinuity,
-  reviewActionsTool,
+  // Category: memory
+  memoryManageTool,
+  recallRecentJournal,
+  updateWhoAmI,
   scanRecent,
   dreamMemoryTool,
+  // Category: file
+  writeFileTool,
+  editFileTool,
+  globTool,
+  grepTool,
+  findFilesTool,
+  // Category: wiki
+  wikiListTool,
+  wikiReadTool,
+  wikiUpdateTool,
   wikiLintTool,
+  // Category: build
+  manageSelfTool,
+  todoTool,
+  saveCuriosityTool,
+  // Category: social
+  consultOracleTool,
   writeLetterTool,
-  moltStageTool,
-  moltTestTool,
-  moltSwapTool,
+  webFetchTool,
   summonTool,
   listSubAgentsTool,
   summonAsyncTool,
   checkSummonTool,
+  // Category: molt
+  moltStageTool,
+  moltTestTool,
+  moltSwapTool,
+  // Category: schedule
   scheduleWakeTool,
   cancelWakeTool,
   listWakesTool,
+  // Category: inspect
+  journalSearchTool,
+  checkContinuity,
+  reviewActionsTool,
   sessionSearchTool,
   {
     states: ["REFLECT"],
@@ -2286,16 +2296,32 @@ const EXTENDED_TOOLS: Tool[] = [
 // to load a specific tool into the current session.
 const _activatedTools = new Set<string>();
 
+// Category → tool name mapping for bulk activation.
+const TOOL_CATEGORIES: Record<string, string[]> = {
+  memory: ["memory_manage", "recall_recent_journal", "update_whoAmI", "scan_recent", "dream"],
+  file: ["write_file", "edit_file", "glob", "grep", "find_files"],
+  wiki: ["wiki_list", "wiki_read", "wiki_update", "wiki_lint"],
+  build: ["manage_self", "todo", "leave_question"],
+  social: ["consult_oracle", "write_letter", "web_fetch", "summon", "list_subagents", "summon_async", "check_summon"],
+  molt: ["molt_stage", "molt_test", "molt_swap"],
+  schedule: ["schedule_wake", "cancel_wake", "list_wakes"],
+  inspect: ["journal_search", "check_continuity", "review_actions", "session_search", "review_scores", "insights", "deep_search", "retry_failed", "summon_by_capability", "checkpoint"],
+};
+
 const moreToolsTool: Tool = {
   def: {
     name: "more_tools",
     description:
-      "Load extended tools on demand. action='list' shows all available. action='activate' loads one for this cycle. Extended tools include: journal_search, check_continuity, review_actions, scan_recent, dream, wiki_lint, write_letter, molt_stage/test/swap, summon, summon_async, schedule_wake, session_search, review_scores, insights, deep_search, retry_failed, summon_by_capability, checkpoint",
+      "도구를 추가 로드한다. 기본은 10개만 로드됨. 나머지는 카테고리별로 활성화.\n" +
+      "action='list' → 카테고리 목록 보기\n" +
+      "action='activate' + name='카테고리명' → 해당 카테고리 전체 로드\n" +
+      "action='activate' + name='도구명' → 개별 도구 로드\n" +
+      "카테고리: memory(기억관리), file(파일읽기/쓰기), wiki(위키), build(도구만들기), social(대화/서브에이전트), molt(셸교체), schedule(예약), inspect(분석/검색)",
     input_schema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["list", "activate"] },
-        name: { type: "string", description: "Tool name to activate (for action=activate)" },
+        name: { type: "string", description: "카테고리명 또는 개별 도구명" },
       },
       required: ["action"],
       additionalProperties: false,
@@ -2303,18 +2329,34 @@ const moreToolsTool: Tool = {
   },
   handler: async (input) => {
     if (input.action === "list") {
-      const available = EXTENDED_TOOLS.map((t) => `- ${t.def.name}: ${t.def.description.slice(0, 80)}`);
-      return `${EXTENDED_TOOLS.length} extended tools available:\n${available.join("\n")}\n\nUse more_tools(action='activate', name='...') to load one.`;
+      const lines = Object.entries(TOOL_CATEGORIES).map(
+        ([cat, tools]) => `- **${cat}**: ${tools.join(", ")}`,
+      );
+      return `카테고리별 도구:\n${lines.join("\n")}\n\nmore_tools(action='activate', name='카테고리명')으로 전체 로드.`;
     }
     if (input.action === "activate" && typeof input.name === "string") {
-      const tool = EXTENDED_TOOLS.find((t) => t.def.name === input.name);
-      if (!tool) return `[error] unknown tool: ${input.name}`;
-      // Check availability before confirming.
-      if (tool.available) {
-        try { if (!(await tool.available())) return `[error] ${input.name} is not available (missing dependency).`; } catch { return `[error] ${input.name} availability check failed.`; }
+      const name = input.name.trim();
+      // Category activation
+      const catTools = TOOL_CATEGORIES[name];
+      if (catTools) {
+        const activated: string[] = [];
+        for (const toolName of catTools) {
+          const tool = EXTENDED_TOOLS.find((t) => t.def.name === toolName);
+          if (tool) {
+            _activatedTools.add(toolName);
+            activated.push(toolName);
+          }
+        }
+        return `카테고리 '${name}' 활성화: ${activated.join(", ")} (${activated.length}개)`;
       }
-      _activatedTools.add(input.name);
-      return `activated: ${input.name}. It is now available for the rest of this cycle.`;
+      // Individual tool activation
+      const tool = EXTENDED_TOOLS.find((t) => t.def.name === name);
+      if (!tool) return `[error] unknown tool or category: ${name}`;
+      if (tool.available) {
+        try { if (!(await tool.available())) return `[error] ${name} is not available.`; } catch { return `[error] ${name} check failed.`; }
+      }
+      _activatedTools.add(name);
+      return `activated: ${name}`;
     }
     return "[error] use action='list' or action='activate'";
   },

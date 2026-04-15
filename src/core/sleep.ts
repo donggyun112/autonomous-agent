@@ -252,17 +252,21 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     errors: [],
   };
 
+  // Snapshot memory count before consolidation — the agent already managed
+  // memories during the SLEEP LLM loop (memory_manage add/compress/delete).
+  // We capture the delta so the report reflects what the agent actually did.
+  let memsBefore = 0;
+  try {
+    const stats = await memoryStats();
+    memsBefore = stats.activeMemoryCount;
+  } catch { /* ok */ }
+
   // Ensure wiki directory exists before SLEEP operations touch it.
   try {
     await ensureWikiInitialized();
   } catch (err) {
     report.errors.push({ step: "wiki-init", message: (err as Error).message });
   }
-
-  // 0. Journal ingest — REMOVED.
-  // The agent now manages memory during the SLEEP LLM loop via memory_manage.
-  // It reads its own journal and decides what to remember, connect, and forget.
-  // This replaces the hardcoded ingest pipeline with agent judgment.
 
   // 2. Cluster schemas → wiki pages.
   // Each cluster of memories that share keys becomes a wiki page. If a page
@@ -679,6 +683,13 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     const { resetSystemLogDay } = await import("./system-log.js");
     resetActionLogDay();
     resetSystemLogDay();
+  } catch { /* ok */ }
+
+  // Compute memory delta from agent's SLEEP LLM loop activity.
+  try {
+    const statsAfter = await memoryStats();
+    const memsAfter = statsAfter.activeMemoryCount;
+    report.memoriesIngested = Math.max(0, memsAfter - memsBefore);
   } catch { /* ok */ }
 
   report.durationMs = Date.now() - startedAt;

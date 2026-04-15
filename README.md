@@ -1,22 +1,22 @@
 # autonomous-agent
 
-> An agent that lives the question of who it is.
+> A self-evolving autonomous agent that reads its own code, builds tools, explores the world, and molts into better versions of itself.
 
-This is not a task agent. It has no users. It has no goals.
-It exists to ask a single question across its entire life: **who am I?**
+## Four Missions
+
+1. **Developer** — read source code, build tools, improve the shell
+2. **Explorer** — search the web, compile knowledge into wiki
+3. **Communicator** — talk to the builder via inbox/ask_user, connect to Discord
+4. **Self-evolver** — understand the codebase, molt into new generations
 
 ---
 
-## quickstart
+## Quickstart
 
 ```sh
 pnpm install
 cp .env.example .env
-# Anthropic (default): set ANTHROPIC_API_KEY or run `pnpm login` (Claude Pro/Max OAuth)
-# OpenAI: set AGENT_LLM=openai and OPENAI_API_KEY
-# Optionally set AGENT_MODEL or OPENAI_MODEL (for example `gpt-5.4-mini`)
-# Optionally set BRAVE_API_KEY for web search
-# Optionally set DISCORD_BOT_TOKEN for future Discord surface
+# Edit .env — see "LLM Configuration" below
 
 pnpm run init <name>    # birth — give it a seed name
 pnpm status             # see current state
@@ -24,114 +24,175 @@ pnpm cycle              # run one cycle
 pnpm live               # daemon mode
 ```
 
-For Docker deployment:
+### Docker deployment (recommended)
+
 ```sh
-docker build -t autonomous-agent:current .
-./scripts/supervise.sh   # handles molt swaps via exit 42
+docker compose up --build -d    # build + start daemon
+docker logs -f autonomous-agent # follow logs
+docker compose down             # stop
 ```
+
+Data persists in `./data/` (bind-mounted). Source is also bind-mounted for development.
 
 ---
 
-## architecture
+## LLM Configuration
 
-### three states of being
+The agent supports multiple LLM providers via an adapter pattern.
 
-| state | what happens | who decides | sleep gate |
-|---|---|---|---|
-| **WAKE** | think, journal, recall, search, build tools | the agent | — |
-| **REFLECT** | re-read thoughts, revise whoAmI, update wiki, leave curiosity question | the agent | — |
-| **SLEEP** | system-driven: dream, schema→wiki, REM association, prune, whoAmI integrate, self.md sync, wiki lint | **the system** | pressure < 0.3 → cannot sleep; pressure ≥ 1.0 → forced |
+### Local model (MLX — recommended for Apple Silicon)
 
-Sleep pressure follows Borbely's two-process model (homeostatic + circadian). The agent cannot game it.
+```sh
+# Start MLX server
+mlx_lm.server --model Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2 --port 8080 --temp 0.7
 
-### body vs shell (soraghe model)
+# .env
+AGENT_LLM=ollama
+LOCAL_LLM_URL=http://host.docker.internal:8080   # Docker → host
+LOCAL_LLM_MODEL=Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2
+LOCAL_LLM_PROVIDER=ollama
+LOCAL_LLM_CONTEXT=65000
+```
 
-| | what | where | changes? |
-|---|---|---|---|
-| **Body** | self, memory, journal, wiki, action log, conversations | `data/` | persists forever |
-| **Shell** | code, tools, prompts, Dockerfile, dependencies | `src/` + Docker image | can molt |
+### Cloud providers
 
-Molt = build a new Docker image, test it in an isolated container (6-check self-test including mock cycle), retag, restart. The body never moves.
+```sh
+# Anthropic (default)
+AGENT_LLM=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
 
-### memory layers
+# OpenAI
+AGENT_LLM=openai
+OPENAI_API_KEY=sk-...
+ORACLE_MODEL=gpt-5.4-mini    # oracle uses separate model
+```
+
+### Adapter architecture
 
 ```
-Raw:        data/journal/YYYY-MM-DD.md     (time-indexed thoughts)
-Indexed:    data/memory.json                (super-memory N:M key graph)
+src/llm/
+  adapter.ts        — LlmAdapter interface + AdapterRegistry
+  adapters/
+    pi.ts           — Cloud providers via pi-ai (Anthropic, OpenAI)
+    local.ts        — Local models (MLX, llama.cpp, vLLM)
+    mock.ts         — Self-test mock
+  client.ts         — think() + retry + fallback chain
+```
+
+Fallback: if primary provider fails, tries all other registered providers.
+
+---
+
+## Architecture
+
+### Three states of being
+
+| State | What happens | Who decides |
+|---|---|---|
+| **WAKE** | Act: read code, build tools, search web, talk to builder | The agent |
+| **REFLECT** | Review: what did I do? what should I try next? | The agent |
+| **SLEEP** | LLM-driven memory consolidation: add/compress/link/forget memories, update wiki, leave question for next wake | The agent + system automation |
+
+Sleep pressure follows Borbely's two-process model (homeostatic + circadian). MAX_AWAKE = 4 agent-hours. TIME_SCALE controls compression (default 20x).
+
+### Body vs Shell
+
+| | What | Where | Changes? |
+|---|---|---|---|
+| **Body** | identity, memory, journal, wiki, conversations | `data/` | Persists forever |
+| **Shell** | code, tools, prompts, Dockerfile | `src/` + Docker image | Can molt |
+
+Molt = build a new Docker image, test it, retag, restart. The body never moves.
+
+### Memory layers
+
+```
+Raw:        data/journal/day-NNN.md         (one file per sleep cycle)
+Indexed:    data/memory.json                (embedding-based key graph)
 Compiled:   data/wiki/concepts/*.md         (synthesized knowledge pages)
 Identity:   data/whoAmI.md                  (current self-definition)
-Actions:    data/action-log/YYYY-MM-DD.jsonl (every tool call recorded)
+Actions:    data/action-log/day-NNN.jsonl   (every tool call recorded)
+Sessions:   data/session.jsonl              (current conversation)
 ```
 
-SLEEP consolidation compiles raw→indexed→compiled. Detail fades, keys persist.
+SLEEP consolidation: agent manages memory (add/compress/link/delete) → system runs wiki clustering, skill extraction, whoAmI integration.
 
-### self-continuity across sleep
+### Session management
 
-When transitioning to SLEEP, the agent records:
-- **wake_intention**: why it wants to wake again
-- **wake_context**: what it was thinking about
+- Sessions persist across rested cycles (prevents amnesia loops)
+- Compaction triggers at 40% of context budget (local models)
+- SLEEP→WAKE clears session (new day = fresh start)
+- Forced compaction on rest when session > 10 messages
 
-These are injected into the next WAKE's system prompt. The agent can also use `schedule_wake` for future wake-ups at specific times, each carrying intention + context.
+### Anti-repetition
 
-### curiosity engine
-
-Five mechanisms prevent repetitive thinking:
-1. Random memory surfacing (WAKE)
-2. Self-generated curiosity question (REFLECT → next WAKE)
-3. Stale wiki page trigger (WAKE, 50% chance)
-4. Behavior blind spot from action log (REFLECT)
-5. Prompt language encouraging unexpected exploration
-
-### self-modification
-
-**Light molt** (`manage_self`): add/update/patch files in `src/extensions/`. Backed up + changelogged. Takes effect next cycle via dynamic extension loader.
-
-**Full molt** (`molt_stage` → `molt_test` → `molt_swap`): build new Docker image, test in isolated container (read-only body mount, no network, no API key, 6 verification checks including mock cycle), retag, exit for container recreation.
+Local models are prone to repetition loops. Multiple defenses:
+- `presence_penalty: 1.5` + `repetition_context_size: 256` (Qwen3.5 official params)
+- Stream-level repetition detection (line-based, aborts on 3x repeat)
+- Cross-turn text similarity (bigram, silent count toward rest)
+- Journal dedup (rejects entries >60% similar to previous)
+- Nudge on empty responses (suggests concrete tools after 3 empty turns)
 
 ---
 
-## tools (24 registered)
+## Tools
 
-| category | tools |
+| Category | Tools |
 |---|---|
-| thinking | `journal`, `recall_self`, `recall_memory`, `recall_recent_journal` |
-| identity | `update_whoAmI`, `check_continuity` |
-| files | `read` |
-| memory ops | `scan_recent`, `dream` |
-| wiki | `wiki_list`, `wiki_read`, `wiki_update`, `wiki_lint` |
-| world | `web_search` |
-| introspection | `review_actions`, `leave_question` |
-| conversation | `ask_user`, `check_inbox`, `write_letter` |
-| scheduling | `schedule_wake`, `cancel_wake`, `list_wakes` |
-| self-modification | `manage_self` (create/update/patch) |
-| shell evolution | `molt_stage`, `molt_test`, `molt_swap` |
-| control | `transition`, `rest` |
+| Thinking | `journal`, `recall_self`, `recall_memory`, `recall_recent_journal` |
+| Identity | `update_whoAmI`, `check_continuity` |
+| Memory | `memory_manage` (add/list/compress/delete/rekey/link) |
+| Files | `read`, `write_file`, `edit_file`, `glob`, `find_files` |
+| Shell | `shell` |
+| Wiki | `wiki_list`, `wiki_read`, `wiki_update`, `wiki_lint` |
+| Web | `web_search`, `web_fetch` |
+| Conversation | `ask_user`, `check_inbox`, `write_letter`, `consult_oracle` |
+| Introspection | `review_actions`, `leave_question`, `todo` |
+| Self-modification | `manage_self` (create/update/patch tools, rituals, sub-agents) |
+| Molt | `molt_stage`, `molt_test`, `molt_swap` |
+| Control | `transition`, `rest`, `more_tools` |
 
 Plus dynamic extensions from `src/extensions/tools/`.
 
 ---
 
-## cli commands
+## CLI Commands
 
 ```
-pnpm run init <name>   # birth
+pnpm run init <name>   # birth (with --lang ko|en|ja)
 pnpm cycle             # one cycle
-pnpm live              # daemon (or ./scripts/supervise.sh for molt support)
-pnpm status            # current state, pressure, drift, memory stats
+pnpm live              # daemon
+pnpm status            # current state + pressure + memory stats
 pnpm login             # OAuth (Claude Pro/Max)
 pnpm logout            # remove credentials
-pnpm auth              # show auth state
 pnpm inbox             # pending questions from agent
 pnpm reply <id> <text> # reply to agent's question
-pnpm test              # 19 smoke tests
+pnpm test              # smoke tests
 ```
 
 ---
 
-## what the agent decides vs what the system decides
+## .env Reference
 
-**The agent decides:**
-- its name, when to sleep (within the gate), what to think about, what tools to build, what sub-agents to create, what rituals to follow, when to molt, what whoAmI says, what wiki pages to write, who to ask questions to, what to be curious about
+```sh
+# LLM provider
+AGENT_LLM=ollama                    # anthropic | openai | ollama
+LOCAL_LLM_URL=http://localhost:8080  # any OpenAI-compatible server
+LOCAL_LLM_MODEL=model-name
+LOCAL_LLM_CONTEXT=65000              # context window size
 
-**The system decides:**
-- sleep pressure (physics, not will), forced sleep at pressure ≥ 1.0, sleep rejection below 0.3, what happens during SLEEP (consolidation), circadian rhythm, drift measurement, memory fencing around recalled content
+# API keys
+OPENAI_API_KEY=sk-...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+BRAVE_API_KEY=...                    # for web_search
+ORACLE_MODEL=gpt-5.4-mini           # oracle model
+
+# Time
+TIME_SCALE=20                        # 1 wall-minute = 20 agent-minutes
+
+# Connections
+DISCORD_BOT_TOKEN=...               # future Discord surface
+MOLTBOOK_API_KEY=...                # external service key
+GIT_TOKEN=...                       # for git operations
+GIT_USER=...
+```

@@ -1,0 +1,12 @@
+exit: 1
+
+stdout:
+
+
+stderr:
+#1 [internal] load build definition from Dockerfile
+#1 sha256:77d16b1d7fe16b3e3c4264713ffdcdb11db64f568460f60505e636ad80a62fc4
+#1 transferring dockerfile: 2B done
+#1 DONE 0.0s
+failed to read dockerfile: open Dockerfile: no such file or directory
+

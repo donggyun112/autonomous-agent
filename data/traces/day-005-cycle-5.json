@@ -1,0 +1,118 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776271231157,
+    "endMs": 1776271313336
+  },
+  {
+    "id": "span-2",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271232693,
+    "endMs": 1776271232694,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776271241152,
+    "endMs": 1776271241153,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271246618,
+    "endMs": 1776271246618,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776271249162,
+    "endMs": 1776271249170,
+    "metadata": {
+      "duration": 8
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271254683,
+    "endMs": 1776271254684,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776271257453,
+    "endMs": 1776271257459,
+    "metadata": {
+      "duration": 6
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776271262365,
+    "endMs": 1776271262410,
+    "metadata": {
+      "duration": 45
+    }
+  },
+  {
+    "id": "span-9",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271263280,
+    "endMs": 1776271263281,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-10",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776271272678,
+    "endMs": 1776271272683,
+    "metadata": {
+      "duration": 5
+    }
+  },
+  {
+    "id": "span-11",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776271280414,
+    "endMs": 1776271310447,
+    "metadata": {
+      "duration": 30033
+    }
+  },
+  {
+    "id": "span-12",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776271311488,
+    "endMs": 1776271311489,
+    "metadata": {
+      "duration": 1
+    }
+  }
+]

@@ -1,0 +1,11 @@
+node_modules
+dist
+data
+generations
+reference
+.git
+.env
+*.log
+.DS_Store
+docs
+README.md

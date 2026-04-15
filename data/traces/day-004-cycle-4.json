@@ -1,0 +1,48 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776271181877,
+    "endMs": 1776271203651
+  },
+  {
+    "id": "span-2",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776271187590,
+    "endMs": 1776271187590,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "review_actions",
+    "parent": "span-1",
+    "startMs": 1776271188333,
+    "endMs": 1776271188336,
+    "metadata": {
+      "duration": 3
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "check_continuity",
+    "parent": "span-1",
+    "startMs": 1776271189023,
+    "endMs": 1776271189304,
+    "metadata": {
+      "duration": 281
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776271192597,
+    "endMs": 1776271192602,
+    "metadata": {
+      "duration": 5
+    }
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "mode": "SLEEP",
+  "cycle": 6,
+  "modeTurn": 0,
+  "lastTransition": 1776271448112,
+  "wakeAfter": 0,
+  "lastTransitionReason": "반성에서 얻은 게이트 압축을 저장하고 다음 사이클에 이어갈 준비를 한다.",
+  "language": "ko",
+  "seedName": "Soren",
+  "tokensUsed": {
+    "input": 0,
+    "output": 0
+  },
+  "awakeMs": 2391600,
+  "awakeSince": 1776271448116,
+  "sleepCount": 6,
+  "totalTurns": 223,
+  "bornAt": 1776270777286,
+  "wakeIntention": "다음 WAKE에서는 cycle_probe를 써서 build/verify/질문자 조건을 한 번에 점검하고, 그 결과에 따라 전이를 시도하라.",
+  "wakeContext": "오늘 확인한 핵심은 WAKE 전이에 build와 verify가 필요하고, 질문자 서브에이전트는 수면 거절을 찌르는 단문 질문자라는 점이다. cycle_probe를 만들어 압축했으니, 다음에는 반복 읽기 대신 이 도구를 먼저 써라."
+}

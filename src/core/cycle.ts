@@ -873,8 +873,7 @@ export async function runCycle(options?: {
         // Reload state — runSleepConsolidation calls resetAfterSleep
         // which increments sleepCount and saves to disk.
         state = await loadState();
-        // New day — clear session so the agent starts fresh.
-        await clearSession();
+        // Session persists across sleep — compaction handles overflow.
       }
       result = "transitioned";
       break;

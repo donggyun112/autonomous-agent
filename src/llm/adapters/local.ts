@@ -129,12 +129,13 @@ export class LocalAdapter implements LlmAdapter {
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
       stream: true,
-      // Qwen3.5 official thinking-mode params
-      top_k: 20,
-      top_p: 0.95,
-      repetition_penalty: 1.0,
-      presence_penalty: 1.5,
-      presence_context_size: 256,
+      // Sampling params — read from env or use sensible defaults.
+      // Gemma4: temp=1.0, top_p=0.95, top_k=64
+      // Qwen3.5: temp=0.7, top_p=0.95, top_k=20, presence_penalty=1.5
+      top_k: Number(process.env.LLM_TOP_K) || 64,
+      top_p: Number(process.env.LLM_TOP_P) || 0.95,
+      repetition_penalty: Number(process.env.LLM_REPETITION_PENALTY) || 1.0,
+      ...(process.env.LLM_PRESENCE_PENALTY ? { presence_penalty: Number(process.env.LLM_PRESENCE_PENALTY), presence_context_size: 256 } : {}),
     };
 
     const oaiTools = toOpenAITools(args.tools);

@@ -155,6 +155,7 @@ export class LocalAdapter implements LlmAdapter {
 
     let text = "";
     const toolCalls: ToolCall[] = [];
+    const tcAccum: Record<string, { id?: string; name: string; args: string }> = {};
     let aborted = false;
 
     for await (const chunk of parseSSE(res.body)) {
@@ -185,6 +186,57 @@ export class LocalAdapter implements LlmAdapter {
           }
         }
       }
+
+      // OpenAI-format streaming tool calls
+      const dtc = delta.tool_calls as Array<Record<string, unknown>> | undefined;
+      if (dtc) {
+        for (const tc of dtc) {
+          const idx = String(tc.index ?? 0);
+          if (!tcAccum[idx]) tcAccum[idx] = { name: "", args: "" };
+          const fn = tc.function as Record<string, string> | undefined;
+          if (fn?.name) tcAccum[idx].name = fn.name;
+          if (fn?.arguments) tcAccum[idx].args += fn.arguments;
+          if (typeof tc.id === "string") tcAccum[idx].id = tc.id;
+        }
+      }
+    }
+
+    // Finalize streaming tool calls
+    for (const [, tc] of Object.entries(tcAccum)) {
+      try {
+        const parsed = JSON.parse(tc.args || "{}");
+        toolCalls.push({
+          id: tc.id ?? `call_${Date.now().toString(36)}`,
+          name: tc.name,
+          input: parsed,
+        });
+      } catch { /* skip malformed */ }
+    }
+
+    // Gemma4 fallback: tool calls may appear as text in the format
+    // call:name{args} — parse them if no streaming tool_calls were found.
+    if (toolCalls.length === 0 && text.includes("call:")) {
+      const callPattern = /call:(\w+)\{([\s\S]*?)\}(?:<tool_call\|>|$)/g;
+      let m;
+      while ((m = callPattern.exec(text)) !== null) {
+        try {
+          let argsStr = m[2];
+          // Gemma4 uses <|"|> for string delimiters — convert to JSON quotes
+          argsStr = argsStr.replace(/<\|"\|>(.*?)<\|"\|>/gs, (_, s) => JSON.stringify(s));
+          argsStr = argsStr.replace(/(?<=[{,])(\w+):/g, '"$1":');
+          const parsed = JSON.parse(`{${argsStr}}`);
+          toolCalls.push({
+            id: `call_${Date.now().toString(36)}_${toolCalls.length}`,
+            name: m[1],
+            input: parsed,
+          });
+        } catch { /* skip malformed */ }
+      }
+      // Remove tool call text from visible output
+      if (toolCalls.length > 0) {
+        text = text.replace(/<\|tool_call\|>[\s\S]*?<tool_call\|>/g, "").trim();
+        text = text.replace(/call:\w+\{[\s\S]*?\}(?:<tool_call\|>|$)/g, "").trim();
+      }
     }
 
     if (aborted) {
@@ -194,7 +246,7 @@ export class LocalAdapter implements LlmAdapter {
     const result: ThinkResult = {
       text,
       toolCalls,
-      stopReason: "end_turn",
+      stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
       inputTokens: 0,
       outputTokens: 0,
     };

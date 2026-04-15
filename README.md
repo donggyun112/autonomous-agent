@@ -175,24 +175,15 @@ pnpm test              # smoke tests
 ## .env Reference
 
 ```sh
-# LLM provider
+# Required
 AGENT_LLM=ollama                    # anthropic | openai | ollama
-LOCAL_LLM_URL=http://localhost:8080  # any OpenAI-compatible server
-LOCAL_LLM_MODEL=model-name
-LOCAL_LLM_CONTEXT=65000              # context window size
-
-# API keys
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...               # needed for embeddings + oracle
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-BRAVE_API_KEY=...                    # for web_search
-ORACLE_MODEL=gpt-5.4-mini           # oracle model
 
-# Time
-TIME_SCALE=20                        # 1 wall-minute = 20 agent-minutes
-
-# Connections (optional)
-DISCORD_BOT_TOKEN=...               # Discord surface
-MOLTBOOK_API_KEY=...                # external service key
-GIT_TOKEN=...                       # for git operations in container
-GIT_USER=...
+# Local model (required if AGENT_LLM=ollama)
+LOCAL_LLM_URL=http://localhost:8080
+LOCAL_LLM_MODEL=model-name
+LOCAL_LLM_CONTEXT=65000
 ```
+
+See `.env.example` for all optional settings (BRAVE_API_KEY, DISCORD_BOT_TOKEN, TIME_SCALE, etc).

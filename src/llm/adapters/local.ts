@@ -164,11 +164,8 @@ export class LocalAdapter implements LlmAdapter {
       const toolCalls: ToolCall[] = [];
 
       if (typeof msg?.content === "string") text = msg.content;
-      if (typeof msg?.reasoning === "string" && msg.reasoning) {
-        // Gemma4 puts reasoning in a separate field — include as text
-        if (text) text = msg.reasoning + "\n\n" + text;
-        else text = String(msg.reasoning);
-      }
+      // Gemma4 reasoning field is internal chain-of-thought — don't expose
+      // to the agent as it pollutes the conversation with English planning text.
 
       const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;
       if (tc) {

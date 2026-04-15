@@ -140,9 +140,14 @@ export class LocalAdapter implements LlmAdapter {
     const oaiTools = toOpenAITools(args.tools);
     if (oaiTools && oaiTools.length > 0) body.tools = oaiTools;
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // Support API key for cloud-compatible endpoints (OpenRouter, etc.)
+    const apiKey = process.env.LOCAL_LLM_API_KEY;
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
 

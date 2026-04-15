@@ -176,14 +176,13 @@ pnpm test              # smoke tests
 
 ```sh
 # Required
-AGENT_LLM=ollama                    # anthropic | openai | ollama
-OPENAI_API_KEY=sk-...               # needed for embeddings + oracle
+OPENAI_API_KEY=sk-...               # for embeddings + oracle
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
-# Local model (required if AGENT_LLM=ollama)
-LOCAL_LLM_URL=http://localhost:8080
-LOCAL_LLM_MODEL=model-name
-LOCAL_LLM_CONTEXT=65000
+# Provider — pick one
+AGENT_LLM=anthropic                 # anthropic | openai | ollama
 ```
 
-See `.env.example` for all optional settings (BRAVE_API_KEY, DISCORD_BOT_TOKEN, TIME_SCALE, etc).
+Any provider works. Adapters handle the rest — Anthropic, OpenAI, or any OpenAI-compatible local server (MLX, llama.cpp, vLLM). If one fails, fallback tries the others.
+
+See `.env.example` for all settings (LOCAL_LLM_URL, BRAVE_API_KEY, DISCORD_BOT_TOKEN, TIME_SCALE, etc).

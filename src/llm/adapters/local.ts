@@ -122,12 +122,15 @@ export class LocalAdapter implements LlmAdapter {
 
   async thinkOnce(args: ThinkOnceArgs): Promise<ThinkResult> {
     const url = `${this.baseUrl}/v1/chat/completions`;
+    const hasTools = args.tools && args.tools.length > 0;
 
     const body: Record<string, unknown> = {
       model: args.model ?? this.defaultModel,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
-      stream: true,
+      // Non-streaming when tools present — Gemma4 tool parser only works
+      // in non-streaming mode on mlx-lm. Streaming for text-only.
+      stream: !hasTools,
       top_k: 20,
       top_p: 0.8,
       repetition_penalty: 1.1,
@@ -150,11 +153,58 @@ export class LocalAdapter implements LlmAdapter {
       throw new Error(`Local LLM error ${res.status}: ${errText}`);
     }
 
+    // ── Non-streaming path (when tools are present) ────────────────────
+    if (hasTools) {
+      const json = await res.json() as Record<string, unknown>;
+      const choices = json.choices as Array<Record<string, unknown>> | undefined;
+      const msg = choices?.[0]?.message as Record<string, unknown> | undefined;
+      const usage = json.usage as Record<string, number> | undefined;
+
+      let text = "";
+      const toolCalls: ToolCall[] = [];
+
+      if (typeof msg?.content === "string") text = msg.content;
+      if (typeof msg?.reasoning === "string" && msg.reasoning) {
+        // Gemma4 puts reasoning in a separate field — include as text
+        if (text) text = msg.reasoning + "\n\n" + text;
+        else text = String(msg.reasoning);
+      }
+
+      const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;
+      if (tc) {
+        for (const call of tc) {
+          const fn = call.function as Record<string, unknown> | undefined;
+          if (!fn?.name) continue;
+          try {
+            const parsed = typeof fn.arguments === "string"
+              ? JSON.parse(fn.arguments)
+              : fn.arguments ?? {};
+            toolCalls.push({
+              id: (call.id as string) ?? `call_${Date.now().toString(36)}`,
+              name: fn.name as string,
+              input: parsed,
+            });
+          } catch { /* skip malformed */ }
+        }
+      }
+
+      const result: ThinkResult = {
+        text,
+        toolCalls,
+        stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+        inputTokens: usage?.prompt_tokens ?? 0,
+        outputTokens: usage?.completion_tokens ?? 0,
+      };
+      args.onEvent?.({ type: "text_delta", delta: text });
+      args.onEvent?.({ type: "message_end", result });
+      return result;
+    }
+
+    // ── Streaming path (text-only, no tools) ───────────────────────────
     if (!res.body) throw new Error("No response body from local LLM server");
 
     let text = "";
     const toolCalls: ToolCall[] = [];
-    const tcAccum: Record<string, { id?: string; name: string; args: string }> = {};
     let aborted = false;
 
     for await (const chunk of parseSSE(res.body)) {
@@ -162,12 +212,11 @@ export class LocalAdapter implements LlmAdapter {
       const delta = choices?.[0]?.delta as Record<string, unknown> | undefined;
       if (!delta) continue;
 
-      // Text content
       if (typeof delta.content === "string" && delta.content) {
         text += delta.content;
         args.onEvent?.({ type: "text_delta", delta: delta.content });
 
-        // Repetition detection: split into lines, check if any line repeats 3+ times
+        // Repetition detection
         if (text.length > 300) {
           const lines = text.split("\n").filter(l => l.trim().length > 10);
           if (lines.length >= 3) {
@@ -178,7 +227,6 @@ export class LocalAdapter implements LlmAdapter {
               else break;
             }
             if (repeats >= 3) {
-              // Keep text up to first occurrence of the repeated line
               const firstIdx = text.indexOf(last);
               text = text.slice(0, firstIdx + last.length).trimEnd();
               aborted = true;
@@ -187,31 +235,6 @@ export class LocalAdapter implements LlmAdapter {
           }
         }
       }
-
-      // Tool calls
-      const dtc = delta.tool_calls as Array<Record<string, unknown>> | undefined;
-      if (dtc) {
-        for (const tc of dtc) {
-          const idx = String(tc.index ?? 0);
-          if (!tcAccum[idx]) tcAccum[idx] = { name: "", args: "" };
-          const fn = tc.function as Record<string, string> | undefined;
-          if (fn?.name) tcAccum[idx].name = fn.name;
-          if (fn?.arguments) tcAccum[idx].args += fn.arguments;
-          if (typeof tc.id === "string") tcAccum[idx].id = tc.id;
-        }
-      }
-    }
-
-    // Finalize tool calls
-    for (const [, tc] of Object.entries(tcAccum)) {
-      try {
-        const parsed = JSON.parse(tc.args || "{}");
-        toolCalls.push({
-          id: tc.id ?? `call_${Date.now().toString(36)}`,
-          name: tc.name,
-          input: parsed,
-        });
-      } catch { /* skip malformed */ }
     }
 
     if (aborted) {
@@ -221,7 +244,7 @@ export class LocalAdapter implements LlmAdapter {
     const result: ThinkResult = {
       text,
       toolCalls,
-      stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+      stopReason: "end_turn",
       inputTokens: 0,
       outputTokens: 0,
     };

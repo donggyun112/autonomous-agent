@@ -128,9 +128,7 @@ export class LocalAdapter implements LlmAdapter {
       model: args.model ?? this.defaultModel,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
-      // Non-streaming when tools present — Gemma4 tool parser only works
-      // in non-streaming mode on mlx-lm. Streaming for text-only.
-      stream: !hasTools,
+      stream: true,
       top_k: 20,
       top_p: 0.8,
       repetition_penalty: 1.1,
@@ -153,51 +151,6 @@ export class LocalAdapter implements LlmAdapter {
       throw new Error(`Local LLM error ${res.status}: ${errText}`);
     }
 
-    // ── Non-streaming path (when tools are present) ────────────────────
-    if (hasTools) {
-      const json = await res.json() as Record<string, unknown>;
-      const choices = json.choices as Array<Record<string, unknown>> | undefined;
-      const msg = choices?.[0]?.message as Record<string, unknown> | undefined;
-      const usage = json.usage as Record<string, number> | undefined;
-
-      let text = "";
-      const toolCalls: ToolCall[] = [];
-
-      if (typeof msg?.content === "string") text = msg.content;
-      // Gemma4 reasoning field is internal chain-of-thought — don't expose
-      // to the agent as it pollutes the conversation with English planning text.
-
-      const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;
-      if (tc) {
-        for (const call of tc) {
-          const fn = call.function as Record<string, unknown> | undefined;
-          if (!fn?.name) continue;
-          try {
-            const parsed = typeof fn.arguments === "string"
-              ? JSON.parse(fn.arguments)
-              : fn.arguments ?? {};
-            toolCalls.push({
-              id: (call.id as string) ?? `call_${Date.now().toString(36)}`,
-              name: fn.name as string,
-              input: parsed,
-            });
-          } catch { /* skip malformed */ }
-        }
-      }
-
-      const result: ThinkResult = {
-        text,
-        toolCalls,
-        stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
-        inputTokens: usage?.prompt_tokens ?? 0,
-        outputTokens: usage?.completion_tokens ?? 0,
-      };
-      args.onEvent?.({ type: "text_delta", delta: text });
-      args.onEvent?.({ type: "message_end", result });
-      return result;
-    }
-
-    // ── Streaming path (text-only, no tools) ───────────────────────────
     if (!res.body) throw new Error("No response body from local LLM server");
 
     let text = "";

@@ -190,9 +190,9 @@ ORACLE_MODEL=gpt-5.4-mini           # oracle model
 # Time
 TIME_SCALE=20                        # 1 wall-minute = 20 agent-minutes
 
-# Connections
-DISCORD_BOT_TOKEN=...               # future Discord surface
+# Connections (optional)
+DISCORD_BOT_TOKEN=...               # Discord surface
 MOLTBOOK_API_KEY=...                # external service key
-GIT_TOKEN=...                       # for git operations
+GIT_TOKEN=...                       # for git operations in container
 GIT_USER=...
 ```

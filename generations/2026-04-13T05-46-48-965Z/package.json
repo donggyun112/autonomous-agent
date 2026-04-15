@@ -1,0 +1,36 @@
+{
+  "name": "autonomous-agent",
+  "version": "0.0.1",
+  "description": "An agent that lives the question of who it is.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "cycle": "tsx src/cli.ts cycle",
+    "live": "tsx src/cli.ts live",
+    "init": "tsx src/cli.ts init",
+    "status": "tsx src/cli.ts status",
+    "login": "tsx src/cli.ts login",
+    "logout": "tsx src/cli.ts logout",
+    "auth": "tsx src/cli.ts whoami",
+    "inbox": "tsx src/cli.ts inbox",
+    "reply": "tsx src/cli.ts reply",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "async-mutex": "^0.5.0",
+    "dotenv": "^16.4.0",
+    "gray-matter": "^4.0.3",
+    "openai": "^4.60.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.4"
+  }
+}

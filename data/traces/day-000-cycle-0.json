@@ -1,0 +1,78 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776270825007,
+    "endMs": 1776270851029
+  },
+  {
+    "id": "span-2",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776270826369,
+    "endMs": 1776270826369,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776270827220,
+    "endMs": 1776270827220,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776270830142,
+    "endMs": 1776270830143,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776270830147,
+    "endMs": 1776270830147,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776270830150,
+    "endMs": 1776270830151,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776270835936,
+    "endMs": 1776270835940,
+    "metadata": {
+      "duration": 4
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "update_whoAmI",
+    "parent": "span-1",
+    "startMs": 1776270847089,
+    "endMs": 1776270847093,
+    "metadata": {
+      "duration": 4
+    }
+  }
+]

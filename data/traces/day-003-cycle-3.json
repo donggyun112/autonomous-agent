@@ -1,0 +1,48 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776271101684,
+    "endMs": 1776271117357
+  },
+  {
+    "id": "span-2",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776271103053,
+    "endMs": 1776271103053,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271104250,
+    "endMs": 1776271104252,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "grep",
+    "parent": "span-1",
+    "startMs": 1776271105168,
+    "endMs": 1776271105193,
+    "metadata": {
+      "duration": 25
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776271110388,
+    "endMs": 1776271110390,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

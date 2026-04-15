@@ -1,0 +1,16 @@
+export declare const ROOT: string;
+export declare const SRC: string;
+export declare const DATA: string;
+export declare const GENERATIONS: string;
+export declare const WHO_AM_I: string;
+export declare const WHO_AM_I_HISTORY: string;
+export declare const JOURNAL_DIR: string;
+export declare const MEMORY_FILE: string;
+export declare const STATE_FILE: string;
+export declare const LINEAGE: string;
+export declare const WIKI_DIR: string;
+export declare const WIKI_INDEX: string;
+export declare const WIKI_LOG: string;
+export declare const WIKI_CONCEPTS_DIR: string;
+export declare const WIKI_ENTITIES_DIR: string;
+export declare const WIKI_SELF: string;

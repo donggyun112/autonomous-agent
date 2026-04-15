@@ -1,0 +1,19 @@
+exit: 1
+
+stdout:
+
+
+stderr:
+#1 [internal] load build definition from Dockerfile
+#1 sha256:12588d6045346e1c91608cfd8f996babcc4c2b20d0739cb8955bec1b676986eb
+#1 transferring dockerfile: 906B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:22-alpine
+#2 sha256:47d2eae63bab6d50cfa8b8f2224819e78e7874178d535e916ae4a05a2e6c8df6
+#2 ERROR: failed to authorize: failed to fetch anonymous token: Get "https://auth.docker.io/token?scope=repository%3Alibrary%2Fnode%3Apull&service=registry.docker.io": x509: certificate signed by unknown authority
+------
+ > [internal] load metadata for docker.io/library/node:22-alpine:
+------
+node:22-alpine: failed to resolve source metadata for docker.io/library/node:22-alpine: failed to authorize: failed to fetch anonymous token: Get "https://auth.docker.io/token?scope=repository%3Alibrary%2Fnode%3Apull&service=registry.docker.io": x509: certificate signed by unknown authority
+

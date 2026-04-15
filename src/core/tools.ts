@@ -785,7 +785,7 @@ const grepTool: Tool = {
           args.push("--max-count=200", "--no-heading");
           if (globFilter) args.push("--glob", globFilter);
         } else {
-          args.push("-r");
+          args.push("-r", "-E");
           if (globFilter) args.push(`--include=${globFilter}`);
         }
         args.push(pattern, dir);

@@ -300,14 +300,16 @@ export async function compactIfNeeded(
   systemPromptForContext: string,
   options?: {
     reservedCompletionTokens?: number;
+    toolDefsTokens?: number;
   },
 ): Promise<CompactResult | null> {
   const provider = resolveProviderConfig().provider;
   const totalTokens = estimateTokens(messages);
   const systemPromptTokens = estimateTextTokens(systemPromptForContext);
   const reservedCompletionTokens = options?.reservedCompletionTokens ?? 4096;
+  const toolDefsTokens = options?.toolDefsTokens ?? 0;
   const estimatedRequestTokens =
-    totalTokens + systemPromptTokens + reservedCompletionTokens;
+    totalTokens + systemPromptTokens + reservedCompletionTokens + toolDefsTokens;
 
   const { triggerTokens, keepRecentTokens } = getContextBudget();
   const shouldCompact = estimatedRequestTokens >= triggerTokens;

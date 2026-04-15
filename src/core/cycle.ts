@@ -481,8 +481,12 @@ export async function runCycle(options?: {
 
   const maybeCompactConversation = async (): Promise<void> => {
     try {
+      // Estimate tool definitions size — these eat context but weren't counted before.
+      const toolDefsChars = JSON.stringify(defs).length;
+      const toolDefsTokens = Math.ceil(toolDefsChars / 4);
       const compacted = await compactIfNeeded(messages, systemPrompt, {
         reservedCompletionTokens: 4096,
+        toolDefsTokens,
       });
       if (!compacted) return;
       messages.length = 0;
@@ -875,8 +879,10 @@ export async function runCycle(options?: {
   // so the next cycle doesn't start with a context-overflowed session.
   if (result === "rested" && messages.length > 10) {
     try {
+      const toolDefsChars = JSON.stringify(defs).length;
       const compacted = await compactIfNeeded(messages, systemPrompt, {
         reservedCompletionTokens: 4096,
+        toolDefsTokens: Math.ceil(toolDefsChars / 4),
       });
       if (compacted) {
         await replaceSession(compacted.newMessages);

@@ -44,7 +44,7 @@ function getContextBudget(): { triggerTokens: number; keepRecentTokens: number }
     // Tool defs can be ~10-15K tokens for this agent. Trigger early
     // to avoid context overflow that causes empty model responses.
     const triggerTokens = Math.floor(LOCAL_CONTEXT * 0.4);
-    const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.10);
+    const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.25);
     return { triggerTokens, keepRecentTokens };
   }
   const { defaultModel } = resolveProviderConfig();

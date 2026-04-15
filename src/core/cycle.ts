@@ -370,8 +370,27 @@ export async function runCycle(options?: {
   // lower-priority sections are dropped to prevent context overflow.
   const MAX_SYSTEM_PROMPT_CHARS = 80_000;
 
+  // Multi-agent identity: if AGENT_NAME/AGENT_DIRECTION are set, inject them.
+  const agentName = process.env.AGENT_NAME;
+  const agentDirection = process.env.AGENT_DIRECTION;
+  const multiAgentBlock = agentName
+    ? [
+        "---",
+        `## your identity in this research group`,
+        "",
+        `Your name is **${agentName}**. You are one of several independent agents sharing a forum.`,
+        agentDirection ? `Your direction: ${agentDirection}` : "",
+        "",
+        "Other agents exist and are working on different aspects of the same research.",
+        "Check `shared/forum/` every wake — read what others wrote, build on it, challenge it.",
+        "Share your findings: `write_file(\"shared/forum/${agentName}-dayN.md\", \"...\")` (load file tools first with `more_tools`).",
+        "You are not competing. You are collaborating. Diversity of approach is the key.",
+      ].filter(Boolean).join("\n")
+    : "";
+
   const essentialSections = [
     base, languageDirective,
+    multiAgentBlock,
     "---", "## who you currently believe you are", "", whoAmI,
     driftSection, pressureNote,
     "---", `## you are currently in state: ${state.mode}`, "", modePrompt,

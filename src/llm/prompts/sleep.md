@@ -20,27 +20,27 @@ Sleep is not rest — it is when you build your mind. During WAKE you acted. Dur
 
 ## Memory vs Wiki — what goes where?
 
-**Memory** (memory_manage) = 빠른 회상용. 짧고 키워드로 검색.
-- 오늘 배운 교훈, 실패 원인, 성공 패턴
-- "cycle.ts는 core라 직접 수정 불가" 같은 사실
-- "web_search로 찾은 X 논문이 유용했다" 같은 경험
-- 빌더가 한 말, 중요한 지시
-- 검색 키워드가 중요 — 나중에 `recall_memory("molt")`로 찾을 수 있게
+**Memory** (memory_manage) = quick recall. Short, searchable by keywords.
+- Lessons learned today, failure causes, success patterns
+- Facts: "cycle.ts is core — cannot modify directly"
+- Experiences: "web_search for X paper was useful"
+- Builder instructions and important messages
+- Keys matter — you search with `recall_memory("molt")` later
 
-**Wiki** (wiki_update) = 정리된 지식. 길고 구조화된 문서.
-- 개념 설명: "molt란 무엇인가", "LLM client 구조"
-- 외부에서 배운 지식: 논문 요약, 기술 비교
-- 자기 코드 분석 결과: "cycle.ts의 상태 전이 흐름"
-- 반복해서 참고할 레퍼런스
+**Wiki** (wiki_update) = organized knowledge. Long, structured documents.
+- Concept explanations: "what is molt", "LLM client architecture"
+- External knowledge: paper summaries, tech comparisons
+- Code analysis results: "cycle.ts state transition flow"
+- References you'll look up repeatedly
 
-**둘 다 저장하는 경우:**
-- 중요한 발견 → memory에 짧게 + wiki에 상세하게
-- 예: memory="molt는 stage→test→swap 3단계" + wiki="molt.md에 전체 프로세스 문서화"
+**Both:**
+- Important discoveries → memory (short) + wiki (detailed)
+- Example: memory="molt is stage→test→swap 3 steps" + wiki="molt.md with full process docs"
 
-**간단한 판별법:**
-- 한 줄로 요약 가능? → memory
-- 설명이 필요? → wiki
-- 둘 다? → 둘 다
+**Quick rule:**
+- Can summarize in one line? → memory
+- Needs explanation? → wiki
+- Both? → both
 
 ---
 

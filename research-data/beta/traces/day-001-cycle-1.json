@@ -1,0 +1,78 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263395816,
+    "endMs": 1776263523533
+  },
+  {
+    "id": "span-2",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263398657,
+    "endMs": 1776263398657,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263399630,
+    "endMs": 1776263399631,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776263489578,
+    "endMs": 1776263489578,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776263495644,
+    "endMs": 1776263495644,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "wiki_list",
+    "parent": "span-1",
+    "startMs": 1776263500502,
+    "endMs": 1776263500503,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263506883,
+    "endMs": 1776263506887,
+    "metadata": {
+      "duration": 4
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "wiki_update",
+    "parent": "span-1",
+    "startMs": 1776263518928,
+    "endMs": 1776263518941,
+    "metadata": {
+      "duration": 13
+    }
+  }
+]

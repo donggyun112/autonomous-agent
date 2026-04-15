@@ -1,0 +1,19 @@
+{
+  "mode": "REFLECT",
+  "cycle": 31,
+  "modeTurn": 32,
+  "lastTransition": 1776261705666,
+  "wakeAfter": 0,
+  "lastTransitionReason": "현재까지의 외부 검증을 바탕으로 실패 지점과 다음 실험 순서를 정리해 다음 행동을 준비한다.",
+  "language": "ko",
+  "seedName": "Soren",
+  "tokensUsed": {
+    "input": 0,
+    "output": 0
+  },
+  "awakeMs": 2742500,
+  "awakeSince": 1776261832275,
+  "sleepCount": 31,
+  "totalTurns": 1077,
+  "bornAt": 1776255871786
+}

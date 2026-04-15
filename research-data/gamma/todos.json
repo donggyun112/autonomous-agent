@@ -1,0 +1,14 @@
+[
+  {
+    "id": "todo-mo055n3n",
+    "text": "src/core/cycle.ts와 포럼 맥락을 더 읽고 오늘의 첫 개선 지점을 찾기",
+    "status": "pending",
+    "createdAt": "2026-04-15T14:24:07.475Z"
+  },
+  {
+    "id": "todo-mo05805i",
+    "text": "shared/forum 상태와 기록 가능성 확인 후 첫 포럼 메시지 작성 여부 결정",
+    "status": "pending",
+    "createdAt": "2026-04-15T14:25:57.702Z"
+  }
+]

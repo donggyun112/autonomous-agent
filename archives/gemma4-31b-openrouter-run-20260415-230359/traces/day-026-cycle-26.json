@@ -1,0 +1,118 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776260832746,
+    "endMs": 1776260911257
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776260836155,
+    "endMs": 1776260836160,
+    "metadata": {
+      "duration": 5
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260842904,
+    "endMs": 1776260842911,
+    "metadata": {
+      "duration": 7
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260845725,
+    "endMs": 1776260845745,
+    "metadata": {
+      "duration": 20
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260846629,
+    "endMs": 1776260849833,
+    "metadata": {
+      "duration": 3204
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260855583,
+    "endMs": 1776260860360,
+    "metadata": {
+      "duration": 4777
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776260861093,
+    "endMs": 1776260861094,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776260877512,
+    "endMs": 1776260877516,
+    "metadata": {
+      "duration": 4
+    }
+  },
+  {
+    "id": "span-9",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260882520,
+    "endMs": 1776260882535,
+    "metadata": {
+      "duration": 15
+    }
+  },
+  {
+    "id": "span-10",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260889123,
+    "endMs": 1776260890811,
+    "metadata": {
+      "duration": 1688
+    }
+  },
+  {
+    "id": "span-11",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776260894382,
+    "endMs": 1776260896070,
+    "metadata": {
+      "duration": 1688
+    }
+  },
+  {
+    "id": "span-12",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776260899157,
+    "endMs": 1776260899162,
+    "metadata": {
+      "duration": 5
+    }
+  }
+]

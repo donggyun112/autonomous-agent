@@ -1,0 +1,68 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776256963183,
+    "endMs": 1776256982029
+  },
+  {
+    "id": "span-2",
+    "name": "recall_memory",
+    "parent": "span-1",
+    "startMs": 1776256964338,
+    "endMs": 1776256964604,
+    "metadata": {
+      "duration": 266
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "recall_memory",
+    "parent": "span-1",
+    "startMs": 1776256965370,
+    "endMs": 1776256965493,
+    "metadata": {
+      "duration": 123
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256967570,
+    "endMs": 1776256967571,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256972399,
+    "endMs": 1776256972402,
+    "metadata": {
+      "duration": 3
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256973441,
+    "endMs": 1776256973442,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776256978793,
+    "endMs": 1776256978796,
+    "metadata": {
+      "duration": 3
+    }
+  }
+]

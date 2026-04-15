@@ -1,0 +1,18 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776258964480,
+    "endMs": 1776258968981
+  },
+  {
+    "id": "span-2",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258966874,
+    "endMs": 1776258966877,
+    "metadata": {
+      "duration": 3
+    }
+  }
+]

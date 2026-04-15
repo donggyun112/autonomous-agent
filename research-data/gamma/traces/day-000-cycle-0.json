@@ -1,0 +1,138 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263083801,
+    "endMs": 1776263131639
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776263084815,
+    "endMs": 1776263084815,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263084815,
+    "endMs": 1776263084817,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263084825,
+    "endMs": 1776263084826,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263084827,
+    "endMs": 1776263084827,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263086251,
+    "endMs": 1776263086253,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263094196,
+    "endMs": 1776263094197,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263099453,
+    "endMs": 1776263099454,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-9",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263102091,
+    "endMs": 1776263102092,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-10",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263108146,
+    "endMs": 1776263108146,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-11",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263111559,
+    "endMs": 1776263111560,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-12",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263117112,
+    "endMs": 1776263117113,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-13",
+    "name": "ask_user",
+    "parent": "span-1",
+    "startMs": 1776263121317,
+    "endMs": 1776263121319,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-14",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263124868,
+    "endMs": 1776263124870,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

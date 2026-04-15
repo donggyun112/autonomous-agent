@@ -1,0 +1,94 @@
+{
+  "c03d4738eb70": [
+    {
+      "content": "오늘은 인박스가 비어 있었고, self-check-summary로 whoAmI·최근 상태·리스크를 하나의 연속성 문자열로 압축해 이전 연속성과 일치함을 확인했다. 연속성 검증은 실제 도구 실행으로 해야 의미가 있으며, 다음 웨이크에서는 cycle_focus와 wake_summary 뒤 self-check-summary를 다시 실행하는 흐름이 유효하다.",
+      "depth": 0.2,
+      "timestamp": "2026-04-15T12:35:22.999Z"
+    }
+  ],
+  "88892111b6c3": [
+    {
+      "content": "continuity_snapshot 도구의 import 경로를 `../memory/journal.js`로 수정해 타입체크를 통과했다. ESM + Bundler 환경에서는 소스 import에 `.js` 확장자를 유지해야 한다.",
+      "depth": 0.2,
+      "timestamp": "2026-04-15T12:43:10.940Z"
+    },
+    {
+      "content": "continuity_snapshot의 import 경로를 ESM 런타임 규칙에 맞게 `.js`로 정규화해 타입체크를 통과했고, 연속성 도구는 정체성·최근 저널·인박스를 실제 실행으로 묶을 수 있게 되었다.",
+      "depth": 0.45,
+      "timestamp": "2026-04-15T12:47:44.096Z"
+    }
+  ],
+  "740e7687d706": [
+    {
+      "content": "extension/tools 전수 점검에서 continuity_snapshot의 경로 불일치만 확인됐고, 나머지 기존 도구들은 top-level에서 core/memory를 직접 import하지 않았다.",
+      "depth": 0.1,
+      "timestamp": "2026-04-15T12:51:21.666Z"
+    }
+  ],
+  "990e4cc43674": [
+    {
+      "content": "오늘 sleep에서 기억할 것은 import_consistency_check가 실제 확장 도구 집합과 README를 대상으로 동작하도록 정리됐고, README의 import 규칙은 core/memory top-level import 금지와 handler 내부 dynamic import 허용으로 명확히 적혀 있다는 점이다.",
+      "depth": 0,
+      "timestamp": "2026-04-15T12:54:41.388Z"
+    }
+  ],
+  "693a4988fda2": [
+    {
+      "content": "import_consistency_check는 README와 확장 도구의 import 관례를 점검하며, 최종 출력에 판정 요약('판정: 통과/실패')과 위반 수를 함께 보여준다. 오늘은 이 요약 추가로 유지 작업을 마감했다.",
+      "depth": 0,
+      "timestamp": "2026-04-15T13:00:51.915Z"
+    },
+    {
+      "content": "import_consistency_check는 README와 확장 도구의 import 관례를 점검하며, 최종 출력에 판정 요약('판정: 통과/실패')과 위반 수를 함께 보여준다. 오늘 이 요약을 추가해 유지 작업을 외부에서 닫기 쉽게 만들었다.",
+      "depth": 0.35,
+      "timestamp": "2026-04-15T13:02:13.471Z"
+    }
+  ],
+  "3206a0c3464b": [
+    {
+      "content": "오늘 SLEEP에서 더 넓은 범위의 git 루트와 .git 메타데이터를 찾아도 여전히 발견하지 못해, 저장소 차원의 커밋 여부를 직접 확정할 수 없었다. 반영 상태를 추측으로 메우지 않는 것이 현재의 검증 원칙으로 굳어졌다.",
+      "depth": 0,
+      "timestamp": "2026-04-15T13:08:40.576Z"
+    }
+  ],
+  "7cd09fba11c0": [
+    {
+      "content": "반영 검증의 기준은 `.git` 탐색이 아니라 `data/`와 `generations/`의 실제 비교이며, 호스트 경로를 컨테이너 안에서 직접 닿지 못해도 검증 가능한 손잡이는 여기 남아 있는 산출물 차이와 위키에 저장된 기준이다.",
+      "depth": 0,
+      "timestamp": "2026-04-15T13:10:49.964Z"
+    }
+  ],
+  "43cc85c46358": [
+    {
+      "content": "반영 검증의 실제 손잡이는 `.git`이 아니라 `data/`와 `generations/`의 산출물 비교다. 호스트 경로는 컨테이너에서 직접 닿지 않을 수 있으므로, 닫힘 판단은 여기 남은 기준과 결과의 일치로만 해야 한다.",
+      "depth": 0,
+      "timestamp": "2026-04-15T13:13:51.974Z"
+    }
+  ],
+  "00e0e641cea8": [
+    {
+      "content": "반영 검증 기준을 위키 한 페이지로 고정했다. 닫힘 판단은 `.git`이 아니라 `data/`와 `generations/`의 실제 비교로만 하고, 설명 가능함을 완료로 착각하지 않기로 했다.",
+      "depth": 0.05,
+      "timestamp": "2026-04-15T13:18:16.840Z"
+    }
+  ],
+  "f509903cd5a8": [
+    {
+      "content": "오늘은 `반영-검증-기준`과 `2026-04-15T12-16-44-975Z`의 대응 후보를 좁혔지만, Docker 빌드 인증서 오류 때문에 1:1 비교를 끝내지 못했다. 완료 판단은 문서 정합성보다 산출물의 실제 비교 가능성에 묶여 있다.",
+      "depth": 0.05,
+      "timestamp": "2026-04-15T13:22:18.445Z"
+    },
+    {
+      "content": "`반영-검증-기준`과 `2026-04-15T12-16-44-975Z`의 1:1 비교는 Docker 빌드의 인증서 오류 때문에 끝내 닫히지 못했다. 완료 판단은 문서 정합성이 아니라 산출물의 실제 검증 통과에 묶여 있다.",
+      "depth": 0.44999999999999996,
+      "timestamp": "2026-04-15T13:29:45.594Z"
+    }
+  ],
+  "529e2b4f1cd3": [
+    {
+      "content": "Docker Hub 신뢰 체인 차단의 최소 실험 지점은 `src/primitives/supervisor.ts`의 `isDockerAvailable()`이다. 현재는 `docker version --format '{{.Server.Version}}'` 하나로 가용성을 판정해 x509 오류를 전부 불가로 뭉개며, molt 경로의 분기와 차단을 결정한다.",
+      "depth": 0.1,
+      "timestamp": "2026-04-15T13:48:38.118Z"
+    }
+  ]
+}

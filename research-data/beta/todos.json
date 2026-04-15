@@ -1,0 +1,26 @@
+[
+  {
+    "id": "todo-mo055m2o",
+    "text": "핵심 코드 구조 파악: cycle.ts, tools.ts, llm/client.ts 읽기",
+    "status": "pending",
+    "createdAt": "2026-04-15T14:24:06.144Z"
+  },
+  {
+    "id": "todo-mo055nsc",
+    "text": "forum과 외부 지식 점검 후, 유용한 확장 또는 개선점 찾기",
+    "status": "done",
+    "createdAt": "2026-04-15T14:24:08.364Z"
+  },
+  {
+    "id": "todo-mo05cc2k",
+    "text": "context_gate 도구를 복구/정리하고 src/extensions/tools의 방어형 도구를 점검한다.",
+    "status": "pending",
+    "createdAt": "2026-04-15T14:29:19.772Z"
+  },
+  {
+    "id": "todo-mo05cwgc",
+    "text": "context_gate를 실제 도구 등록 경로에 연결할지 확인하고, 필요하면 tool registry를 점검한다.",
+    "status": "pending",
+    "createdAt": "2026-04-15T14:29:46.188Z"
+  }
+]

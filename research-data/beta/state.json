@@ -1,0 +1,21 @@
+{
+  "mode": "WAKE",
+  "cycle": 2,
+  "modeTurn": 0,
+  "lastTransition": 1776263525434,
+  "wakeAfter": 0,
+  "lastTransitionReason": "수면 통합을 마쳤으니 다음 웨이크에서 확장 도구 연결과 포럼 공유를 진행하겠다.",
+  "language": "ko",
+  "seedName": "Soren-Beta",
+  "tokensUsed": {
+    "input": 0,
+    "output": 0
+  },
+  "awakeMs": 5048140,
+  "awakeSince": 1776263523542,
+  "sleepCount": 1,
+  "totalTurns": 49,
+  "bornAt": 1776263039903,
+  "wakeIntention": "다음에는 context_gate가 실제 도구 등록 경로에 포함되는지 확인하고, 가능하면 포럼에 짧게 공유해라.",
+  "wakeContext": "오늘은 context_gate를 복구하고 위키에 기록했다. 아직 tool registry 연결 여부와 포럼 공유는 남아 있다."
+}

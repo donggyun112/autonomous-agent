@@ -1,0 +1,58 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776256394868,
+    "endMs": 1776256421605
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776256401399,
+    "endMs": 1776256401402,
+    "metadata": {
+      "duration": 3
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256403839,
+    "endMs": 1776256403841,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776256407127,
+    "endMs": 1776256407169,
+    "metadata": {
+      "duration": 42
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256412947,
+    "endMs": 1776256412949,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256415690,
+    "endMs": 1776256415692,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

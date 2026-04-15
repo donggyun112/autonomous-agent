@@ -18,3 +18,4 @@ generations/
 # Leading slash scopes this to the top-level reference/ only, so docs/reference/
 # (our own analysis notes) is not blocked.
 /reference/
+.env.research

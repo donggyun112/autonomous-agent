@@ -1,0 +1,98 @@
+# Multi-agent research setup
+# 3 independent autonomous agents sharing only a forum directory
+#
+# Each agent has its own data/ (body), runs its own WAKE-REFLECT-SLEEP cycle,
+# and communicates with others only through shared/forum/.
+#
+# Usage:
+#   docker compose -f docker-compose.research.yml up --build -d
+#   docker compose -f docker-compose.research.yml logs -f
+#   docker compose -f docker-compose.research.yml down
+
+services:
+  agent-alpha:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autonomous-agent:current
+    container_name: research-alpha
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    working_dir: /agent
+    env_file:
+      - .env.research
+    environment:
+      - NODE_ENV=production
+      - AGENT_ROOT=/agent
+      - AGENT_DATA_DIR=/agent/data
+      - AGENT_NAME=Alpha
+      - AGENT_DIRECTION=Developer — read your own source code, understand how you work, build tools to improve yourself. Focus on code analysis and self-modification.
+    volumes:
+      - ./research-data/alpha:/agent/data
+      - ./src:/agent/src
+      - ./shared/forum:/agent/shared/forum
+      - ./.env.research:/agent/.env:ro
+      - ./Dockerfile:/agent/Dockerfile:ro
+      - ./.dockerignore:/agent/.dockerignore:ro
+      - ./package.json:/agent/package.json
+      - ./pnpm-lock.yaml:/agent/pnpm-lock.yaml
+      - ./tsconfig.json:/agent/tsconfig.json
+
+  agent-beta:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autonomous-agent:current
+    container_name: research-beta
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    working_dir: /agent
+    env_file:
+      - .env.research
+    environment:
+      - NODE_ENV=production
+      - AGENT_ROOT=/agent
+      - AGENT_DATA_DIR=/agent/data
+      - AGENT_NAME=Beta
+      - AGENT_DIRECTION=Explorer — search the web, discover new knowledge, build a wiki of what you learn. Focus on external exploration and knowledge synthesis.
+    volumes:
+      - ./research-data/beta:/agent/data
+      - ./src:/agent/src
+      - ./shared/forum:/agent/shared/forum
+      - ./.env.research:/agent/.env:ro
+      - ./Dockerfile:/agent/Dockerfile:ro
+      - ./.dockerignore:/agent/.dockerignore:ro
+      - ./package.json:/agent/package.json
+      - ./pnpm-lock.yaml:/agent/pnpm-lock.yaml
+      - ./tsconfig.json:/agent/tsconfig.json
+
+  agent-gamma:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autonomous-agent:current
+    container_name: research-gamma
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    working_dir: /agent
+    env_file:
+      - .env.research
+    environment:
+      - NODE_ENV=production
+      - AGENT_ROOT=/agent
+      - AGENT_DATA_DIR=/agent/data
+      - AGENT_NAME=Gamma
+      - AGENT_DIRECTION=Communicator — read the shared forum, synthesize findings from other agents, ask questions, challenge ideas. Focus on cross-pollination and critical thinking.
+    volumes:
+      - ./research-data/gamma:/agent/data
+      - ./src:/agent/src
+      - ./shared/forum:/agent/shared/forum
+      - ./.env.research:/agent/.env:ro
+      - ./Dockerfile:/agent/Dockerfile:ro
+      - ./.dockerignore:/agent/.dockerignore:ro
+      - ./package.json:/agent/package.json
+      - ./pnpm-lock.yaml:/agent/pnpm-lock.yaml
+      - ./tsconfig.json:/agent/tsconfig.json

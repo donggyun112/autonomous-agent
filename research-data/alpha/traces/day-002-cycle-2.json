@@ -1,0 +1,58 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263484191,
+    "endMs": 1776263499556
+  },
+  {
+    "id": "span-2",
+    "name": "recall_memory",
+    "parent": "span-1",
+    "startMs": 1776263485052,
+    "endMs": 1776263485189,
+    "metadata": {
+      "duration": 137
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263485855,
+    "endMs": 1776263485856,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776263486483,
+    "endMs": 1776263486483,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "glob",
+    "parent": "span-1",
+    "startMs": 1776263487121,
+    "endMs": 1776263487179,
+    "metadata": {
+      "duration": 58
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "write_file",
+    "parent": "span-1",
+    "startMs": 1776263488478,
+    "endMs": 1776263488480,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

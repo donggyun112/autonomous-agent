@@ -1,0 +1,108 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263216516,
+    "endMs": 1776263248444
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776263220212,
+    "endMs": 1776263220212,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263226544,
+    "endMs": 1776263226545,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "recall_memory",
+    "parent": "span-1",
+    "startMs": 1776263226546,
+    "endMs": 1776263226547,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "recall_memory",
+    "parent": "span-1",
+    "startMs": 1776263226547,
+    "endMs": 1776263226548,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263229045,
+    "endMs": 1776263229046,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263233848,
+    "endMs": 1776263233849,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263233851,
+    "endMs": 1776263233852,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-9",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263233853,
+    "endMs": 1776263233854,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-10",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263234602,
+    "endMs": 1776263234603,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-11",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263244571,
+    "endMs": 1776263244573,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

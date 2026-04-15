@@ -1,0 +1,55 @@
+{"ts":"2026-04-15T13:44:42.242Z","event":"cycle_end","cycle":25,"mode":"WAKE","reason":"transitioned","durationMs":34448}
+{"ts":"2026-04-15T13:44:42.248Z","event":"cycle_start","cycle":25,"mode":"WAKE"}
+{"ts":"2026-04-15T13:44:42.604Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:44:43.840Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1236}
+{"ts":"2026-04-15T13:44:43.865Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:45:39.307Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:10.481Z","event":"cycle_start","cycle":25,"mode":"WAKE"}
+{"ts":"2026-04-15T13:46:10.956Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:14.026Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":3070}
+{"ts":"2026-04-15T13:46:14.230Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:15.896Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1666}
+{"ts":"2026-04-15T13:46:15.978Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:17.366Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1388}
+{"ts":"2026-04-15T13:46:17.428Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:20.307Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":2878}
+{"ts":"2026-04-15T13:46:20.408Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:21.441Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1033}
+{"ts":"2026-04-15T13:46:21.450Z","event":"cycle_end","cycle":25,"mode":"REFLECT","reason":"transitioned","durationMs":10972}
+{"ts":"2026-04-15T13:46:21.455Z","event":"cycle_start","cycle":25,"mode":"REFLECT"}
+{"ts":"2026-04-15T13:46:21.680Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:25.054Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":3373}
+{"ts":"2026-04-15T13:46:25.070Z","event":"cycle_end","cycle":25,"mode":"SLEEP","reason":"transitioned","durationMs":3616}
+{"ts":"2026-04-15T13:46:25.074Z","event":"cycle_start","cycle":25,"mode":"SLEEP"}
+{"ts":"2026-04-15T13:46:25.555Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:26.818Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1262}
+{"ts":"2026-04-15T13:46:26.829Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:27.589Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":760}
+{"ts":"2026-04-15T13:46:27.607Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:28.170Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":562}
+{"ts":"2026-04-15T13:46:28.187Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:28.885Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":697}
+{"ts":"2026-04-15T13:46:28.891Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:30.322Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1431}
+{"ts":"2026-04-15T13:46:31.286Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:32.391Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1104}
+{"ts":"2026-04-15T13:46:32.559Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:33.428Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":868}
+{"ts":"2026-04-15T13:46:33.441Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:34.929Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1488}
+{"ts":"2026-04-15T13:46:34.946Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:36.977Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":2030}
+{"ts":"2026-04-15T13:46:36.998Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:39.956Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":2957}
+{"ts":"2026-04-15T13:46:39.975Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:41.898Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1922}
+{"ts":"2026-04-15T13:46:41.919Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:43.470Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1551}
+{"ts":"2026-04-15T13:46:44.016Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:46.877Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":2861}
+{"ts":"2026-04-15T13:46:46.887Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:48.487Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1599}
+{"ts":"2026-04-15T13:46:48.517Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:50.276Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1758}
+{"ts":"2026-04-15T13:46:50.282Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-15T13:46:51.820Z","event":"llm_call","detail":"openai","model":"gpt-5.4-mini","inputTokens":0,"outputTokens":0,"durationMs":1537}

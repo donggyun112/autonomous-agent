@@ -1,0 +1,68 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776256030403,
+    "endMs": 1776256039645
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776256031607,
+    "endMs": 1776256031608,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "recall_self",
+    "parent": "span-1",
+    "startMs": 1776256031609,
+    "endMs": 1776256031611,
+    "metadata": {
+      "duration": 2
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256031612,
+    "endMs": 1776256031613,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776256031614,
+    "endMs": 1776256031615,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "self-check-summary",
+    "parent": "span-1",
+    "startMs": 1776256033123,
+    "endMs": 1776256033123,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776256036215,
+    "endMs": 1776256036218,
+    "metadata": {
+      "duration": 3
+    }
+  }
+]

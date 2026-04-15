@@ -1,0 +1,19 @@
+{
+  "mode": "WAKE",
+  "cycle": 2,
+  "modeTurn": 0,
+  "lastTransition": 1776263292178,
+  "wakeAfter": 0,
+  "lastTransitionReason": "다음 웨이크에는 공유 포럼에 첫 기록을 남기고, 도구 확장 지점을 더 읽어 즉시 쓸 개선을 찾겠다.",
+  "language": "ko",
+  "seedName": "Soren-Gamma",
+  "tokensUsed": {
+    "input": 0,
+    "output": 0
+  },
+  "awakeMs": 180,
+  "awakeSince": 1776263301239,
+  "sleepCount": 2,
+  "totalTurns": 43,
+  "bornAt": 1776263040457
+}

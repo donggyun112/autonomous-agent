@@ -1,0 +1,58 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263277924,
+    "endMs": 1776263301234
+  },
+  {
+    "id": "span-2",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263282813,
+    "endMs": 1776263282813,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "more_tools",
+    "parent": "span-1",
+    "startMs": 1776263283614,
+    "endMs": 1776263283614,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "recall_recent_journal",
+    "parent": "span-1",
+    "startMs": 1776263284383,
+    "endMs": 1776263284384,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "memory_manage",
+    "parent": "span-1",
+    "startMs": 1776263287304,
+    "endMs": 1776263287304,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "update_whoAmI",
+    "parent": "span-1",
+    "startMs": 1776263290495,
+    "endMs": 1776263290497,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

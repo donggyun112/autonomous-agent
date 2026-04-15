@@ -1,0 +1,38 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776261810327,
+    "endMs": 1776261822251
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776261812759,
+    "endMs": 1776261812764,
+    "metadata": {
+      "duration": 5
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776261814531,
+    "endMs": 1776261814535,
+    "metadata": {
+      "duration": 4
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "ask_user",
+    "parent": "span-1",
+    "startMs": 1776261821322,
+    "endMs": 1776261821324,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

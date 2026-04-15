@@ -1,0 +1,50 @@
+/agent/src/cli.ts:34:  checkInbox as checkInboxApi,
+/agent/src/extensions/tools/continuity_snapshot.ts:2:import { readRecent } from "../../memory/journal.js";
+/agent/src/extensions/tools/continuity_snapshot.ts:3:import { reconstitute } from "../../core/identity.js";
+/agent/src/extensions/tools/continuity_snapshot.ts:4:import { checkInbox } from "../../core/conversation.js";
+/agent/src/extensions/tools/continuity_snapshot.ts:21:      Promise.resolve(reconstitute()),
+/agent/src/extensions/tools/continuity_snapshot.ts:22:      Promise.resolve(readRecent(recentDays)),
+/agent/src/extensions/tools/continuity_snapshot.ts:23:      Promise.resolve(checkInbox()),
+/agent/src/core/cycle.ts:58:import { reconstitute, measureDrift, type DriftReport } from "./identity.js";
+/agent/src/core/cycle.ts:195:  let whoAmI = await reconstitute();
+/agent/src/core/conversation.ts:195:export async function checkInbox(options?: {
+/agent/src/core/conversation.ts:347:        // same logic as checkInbox skip. Keeps status count aligned.
+/agent/src/core/tools.ts:28:import { appendThought, readRecent, readToday, searchJournal } from "../memory/journal.js";
+/agent/src/core/tools.ts:37:import { actionStats, readRecentActions } from "./action-log.js";
+/agent/src/core/tools.ts:45:import { measureDrift, reconstitute, revise } from "./identity.js";
+/agent/src/core/tools.ts:65:import { askUser, checkInbox, writeLetter } from "./conversation.js";
+/agent/src/core/tools.ts:212:  handler: async () => reconstitute(),
+/agent/src/core/tools.ts:400:    const text = await readRecent(d);
+/agent/src/core/tools.ts:835:    const entries = await readRecentActions(days);
+/agent/src/core/tools.ts:984:    const { reconstitute } = await import("./identity.js");
+/agent/src/core/tools.ts:991:    try { identity = await reconstitute(); } catch { /* ok */ }
+/agent/src/core/tools.ts:1018:const checkInboxTool: Tool = {
+/agent/src/core/tools.ts:1037:    const messages = await checkInbox({
+/agent/src/core/tools.ts:2176:  checkInboxTool,
+/agent/src/core/subagent-loader.ts:28:import { reconstitute } from "./identity.js";
+/agent/src/core/subagent-loader.ts:159:    const whoAmI = await reconstitute();
+/agent/src/core/ritual-loader.ts:34:import { readRecent } from "../memory/journal.js";
+/agent/src/core/ritual-loader.ts:189:        const journal = await readRecent(r.autoRecallDays);
+/agent/src/core/sleep.ts:35:import { readRecent, readToday } from "../memory/journal.js";
+/agent/src/core/sleep.ts:36:import { reconstitute, revise } from "./identity.js";
+/agent/src/core/sleep.ts:170:  const whoAmI = await reconstitute();
+/agent/src/core/sleep.ts:208:  const recent = await readRecent(1);
+/agent/src/core/sleep.ts:211:  const currentWhoAmI = await reconstitute();
+/agent/src/core/sleep.ts:441:    const { readRecentActions: readActionsForHandoff } = await import("./action-log.js");
+/agent/src/core/sleep.ts:482:    const { readRecentActions } = await import("./action-log.js");
+/agent/src/core/sleep.ts:483:    const actions = await readRecentActions(1);
+/agent/src/core/sleep.ts:551:    const { readRecentActions } = await import("./action-log.js");
+/agent/src/core/sleep.ts:555:    const recentActions = await readRecentActions(10); // last 10 days
+/agent/src/core/sleep.ts:620:    const { readRecentActions: readActions } = await import("./action-log.js");
+/agent/src/core/insights.ts:2:import { readRecentActions, actionStats } from "./action-log.js";
+/agent/src/core/insights.ts:32:  const entries = await readRecentActions(days);
+/agent/src/core/curiosity.ts:23:import { actionStats, readRecentActions } from "./action-log.js";
+/agent/src/core/curiosity.ts:166:    const entries = await readRecentActions(days);
+/agent/src/core/identity.ts:13://   - reconstitute(): called at the start of every cycle. Reads the current
+/agent/src/core/identity.ts:35:export async function reconstitute(): Promise<string> {
+/agent/src/core/identity.ts:211:    reconstitute(),
+/agent/src/core/action-log.ts:56:export async function readRecentActions(days = 1): Promise<ActionEntry[]> {
+/agent/src/core/action-log.ts:93:  const entries = await readRecentActions(days);
+/agent/src/core/skill-engine.ts:2:import { readRecentActions } from "./action-log.js";
+/agent/src/core/skill-engine.ts:5:  const entries = await readRecentActions(days);
+/agent/src/memory/journal.ts:80:export async function readRecent(days = 3): Promise<string> {

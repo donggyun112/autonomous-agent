@@ -28,6 +28,7 @@ services:
       - AGENT_DATA_DIR=/agent/data
       - AGENT_NAME=Alpha
       - AGENT_DIRECTION=Developer — read your own source code, understand how you work, build tools to improve yourself. Focus on code analysis and self-modification.
+      - LOCAL_LLM_URL=http://host.docker.internal:8080
     volumes:
       - ./research-data/alpha:/agent/data
       - ./src:/agent/src
@@ -57,6 +58,7 @@ services:
       - AGENT_DATA_DIR=/agent/data
       - AGENT_NAME=Beta
       - AGENT_DIRECTION=Explorer — search the web, discover new knowledge, build a wiki of what you learn. Focus on external exploration and knowledge synthesis.
+      - LOCAL_LLM_URL=http://host.docker.internal:8081
     volumes:
       - ./research-data/beta:/agent/data
       - ./src:/agent/src
@@ -86,6 +88,7 @@ services:
       - AGENT_DATA_DIR=/agent/data
       - AGENT_NAME=Gamma
       - AGENT_DIRECTION=Communicator — read the shared forum, synthesize findings from other agents, ask questions, challenge ideas. Focus on cross-pollination and critical thinking.
+      - LOCAL_LLM_URL=http://host.docker.internal:8082
     volumes:
       - ./research-data/gamma:/agent/data
       - ./src:/agent/src

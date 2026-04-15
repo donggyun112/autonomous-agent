@@ -169,6 +169,11 @@ export class LocalAdapter implements LlmAdapter {
       const delta = choices?.[0]?.delta as Record<string, unknown> | undefined;
       if (!delta) continue;
 
+      // Reasoning/thinking tokens (Gemma4 sends as delta.reasoning)
+      if (typeof delta.reasoning === "string" && delta.reasoning) {
+        args.onEvent?.({ type: "text_delta", delta: delta.reasoning });
+      }
+
       if (typeof delta.content === "string" && delta.content) {
         text += delta.content;
         args.onEvent?.({ type: "text_delta", delta: delta.content });

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776263312129,
+    "endMs": 1776263324760
+  },
+  {
+    "id": "span-2",
+    "name": "check_inbox",
+    "parent": "span-1",
+    "startMs": 1776263317406,
+    "endMs": 1776263317406,
+    "metadata": {
+      "duration": 0
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776263318332,
+    "endMs": 1776263318333,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776263321606,
+    "endMs": 1776263321608,
+    "metadata": {
+      "duration": 2
+    }
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "mode": "WAKE",
+  "cycle": 2,
+  "modeTurn": 0,
+  "lastTransition": 1776263491530,
+  "wakeAfter": 0,
+  "lastTransitionReason": "file_tree의 얕은 구현을 확인했고, 다음엔 실제 호출 검증과 재귀형 보강을 하려고 한다.",
+  "language": "ko",
+  "seedName": "Soren-Alpha",
+  "tokensUsed": {
+    "input": 0,
+    "output": 0
+  },
+  "awakeMs": 380,
+  "awakeSince": 1776263499563,
+  "sleepCount": 2,
+  "totalTurns": 46,
+  "bornAt": 1776263039383
+}

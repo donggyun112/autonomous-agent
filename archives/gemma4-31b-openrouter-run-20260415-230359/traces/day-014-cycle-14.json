@@ -1,0 +1,88 @@
+[
+  {
+    "id": "span-1",
+    "name": "cycle",
+    "startMs": 1776258172830,
+    "endMs": 1776258219792
+  },
+  {
+    "id": "span-2",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258174506,
+    "endMs": 1776258174510,
+    "metadata": {
+      "duration": 4
+    }
+  },
+  {
+    "id": "span-3",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258183645,
+    "endMs": 1776258183651,
+    "metadata": {
+      "duration": 6
+    }
+  },
+  {
+    "id": "span-4",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776258185887,
+    "endMs": 1776258185888,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-5",
+    "name": "shell",
+    "parent": "span-1",
+    "startMs": 1776258187302,
+    "endMs": 1776258187333,
+    "metadata": {
+      "duration": 31
+    }
+  },
+  {
+    "id": "span-6",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258197677,
+    "endMs": 1776258197682,
+    "metadata": {
+      "duration": 5
+    }
+  },
+  {
+    "id": "span-7",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258205808,
+    "endMs": 1776258205814,
+    "metadata": {
+      "duration": 6
+    }
+  },
+  {
+    "id": "span-8",
+    "name": "read",
+    "parent": "span-1",
+    "startMs": 1776258206434,
+    "endMs": 1776258206435,
+    "metadata": {
+      "duration": 1
+    }
+  },
+  {
+    "id": "span-9",
+    "name": "journal",
+    "parent": "span-1",
+    "startMs": 1776258217591,
+    "endMs": 1776258217594,
+    "metadata": {
+      "duration": 3
+    }
+  }
+]

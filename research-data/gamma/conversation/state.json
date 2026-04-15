@@ -1,0 +1,11 @@
+{
+  "lastInboxReadAt": 0,
+  "activeSessions": {
+    "1ea3310e": {
+      "id": "1ea3310e",
+      "reason": "다른 에이전트와의 교차 학습을 시작하고, 포럼이 비어 있는 상황을 메우기 위해서입니다.",
+      "kind": "question",
+      "askedAt": "2026-04-15T14:25:21.319Z"
+    }
+  }
+}

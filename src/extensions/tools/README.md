@@ -15,9 +15,6 @@ export const tool: Tool = {
   // Optional: which states this tool is available in. Omit for all states.
   // states: ["WAKE", "REFLECT"],
 
-  // Optional: max output chars before result is persisted to disk. Default 8000.
-  // maxOutputChars: 4000,
-
   def: {
     name: "my_tool_name",
     description: "What this tool does and when to use it.",
@@ -32,16 +29,45 @@ export const tool: Tool = {
 
   handler: async (input) => {
     const query = String(input.query ?? "");
-    // Do your work here. You can import from primitives:
-    //   import { readPath } from "../../primitives/read.js";
-    //   import { writePath } from "../../primitives/write.js";
-    //   import { recall } from "../../primitives/recall.js";
-    //   import { think } from "../../primitives/think.js";
-    // Return a string that will be shown to you as the tool result.
+    // Do your work here — see import rules below.
     return `result for: ${query}`;
   },
 };
 ```
+
+## Import rules (CRITICAL)
+
+**DO NOT use top-level imports for core/memory modules.** They will fail with `ERR_MODULE_NOT_FOUND` because extensions are dynamically loaded and ESM resolution works differently here.
+
+**WRONG:**
+```ts
+import { readRecent } from "../../memory/journal.js";     // ❌ FAILS
+import { reconstitute } from "../../core/identity.js";     // ❌ FAILS
+```
+
+**RIGHT — use dynamic import inside handler:**
+```ts
+handler: async (input) => {
+  const { readRecent } = await import("../../memory/journal.js");     // ✅
+  const { reconstitute } = await import("../../core/identity.js");    // ✅
+  // use them here
+}
+```
+
+**ALSO RIGHT — use primitives (always safe):**
+```ts
+import { readPath } from "../../primitives/read.js";    // ✅ primitives are OK
+import { writePath } from "../../primitives/write.js";   // ✅
+import { recall } from "../../primitives/recall.js";     // ✅
+```
+
+**The only safe top-level imports are:**
+- `import type { Tool } from "../../core/tools.js"` — type-only, no runtime
+- `import { ... } from "../../primitives/xxx.js"` — primitives are designed for this
+- `import { ... } from "fs/promises"` — Node.js built-ins
+- `import { ... } from "path"` — Node.js built-ins
+
+Everything else → dynamic import inside handler.
 
 ## Tips
 
@@ -49,6 +75,8 @@ export const tool: Tool = {
 - Use primitives (read/write/recall/think) rather than raw Node.js APIs
   where possible — they are already bounded to your world.
 - If a tool needs an API key, read it from `process.env` and return a
-  helpful error message if it's missing (like web_search does).
+  helpful error message if it's missing.
 - Give the tool a clear `description` — that's how you (the LLM) know
   when to call it. Write it for yourself.
+- Test your tool by calling it once after creating it. If it errors, read
+  the error and fix the import path.

@@ -251,6 +251,35 @@ export class LocalAdapter implements LlmAdapter {
       }
     }
 
+    // Qwen3.5 vllm-mlx fallback: tool calls appear as text in the format
+    // <function=name><parameter=key>value</parameter></function>
+    if (toolCalls.length === 0 && text.includes("<function=")) {
+      const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+      let fm;
+      while ((fm = fnPattern.exec(text)) !== null) {
+        try {
+          const name = fm[1];
+          const paramBlock = fm[2];
+          const params: Record<string, string> = {};
+          const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+          let pm;
+          while ((pm = paramPattern.exec(paramBlock)) !== null) {
+            params[pm[1]] = pm[2].trim();
+          }
+          toolCalls.push({
+            id: `call_${Date.now().toString(36)}_${toolCalls.length}`,
+            name,
+            input: params,
+          });
+        } catch { /* skip */ }
+      }
+      if (toolCalls.length > 0) {
+        // Remove tool call text + thinking from visible output
+        text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        text = text.replace(/<function=[\s\S]*?<\/function>/g, "").trim();
+      }
+    }
+
     if (aborted) {
       console.warn(`[${this.id}] repetition detected — output truncated at ${text.length} chars`);
     }

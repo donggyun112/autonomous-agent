@@ -96,7 +96,8 @@ export class LocalAdapter {
             model: args.model ?? this.defaultModel,
             messages: toOpenAIMessages(args.systemPrompt, args.messages),
             max_tokens: args.maxTokens ?? 4096,
-            stream: true,
+            // Non-streaming when tools present — vllm-mlx streaming doesn't parse tool_calls
+            stream: !hasTools,
             // Sampling params — read from env or use sensible defaults.
             // Gemma4: temp=1.0, top_p=0.95, top_k=64
             // Qwen3.5: temp=0.7, top_p=0.95, top_k=20, presence_penalty=1.5
@@ -122,6 +123,63 @@ export class LocalAdapter {
             const errText = await res.text().catch(() => "");
             throw new Error(`Local LLM error ${res.status}: ${errText}`);
         }
+        // ── Non-streaming path (when tools present) ────────────────────
+        if (hasTools) {
+            const json = await res.json();
+            const choices = json.choices;
+            const msg = choices?.[0]?.message;
+            const usage = json.usage;
+            let text = typeof msg?.content === "string" ? msg.content : "";
+            const toolCalls = [];
+            // Strip thinking from content
+            text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+            // Parse tool_calls from response
+            const tc = msg?.tool_calls;
+            if (tc) {
+                for (const call of tc) {
+                    const fn = call.function;
+                    if (!fn?.name)
+                        continue;
+                    try {
+                        const parsed = typeof fn.arguments === "string"
+                            ? JSON.parse(fn.arguments) : fn.arguments ?? {};
+                        toolCalls.push({
+                            id: call.id ?? `call_${Date.now().toString(36)}`,
+                            name: fn.name,
+                            input: parsed,
+                        });
+                    }
+                    catch { /* skip */ }
+                }
+            }
+            // Fallback: parse <function=name> from text if no tool_calls
+            if (toolCalls.length === 0 && text.includes("<function=")) {
+                const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+                let fm;
+                while ((fm = fnPattern.exec(text)) !== null) {
+                    const params = {};
+                    const pp = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+                    let pm;
+                    while ((pm = pp.exec(fm[2])) !== null)
+                        params[pm[1]] = pm[2].trim();
+                    toolCalls.push({ id: `call_${Date.now().toString(36)}_${toolCalls.length}`, name: fm[1], input: params });
+                }
+                if (toolCalls.length > 0)
+                    text = text.replace(/<function=[\s\S]*?<\/function>/g, "").trim();
+            }
+            const result = {
+                text,
+                toolCalls,
+                stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+                inputTokens: usage?.prompt_tokens ?? 0,
+                outputTokens: usage?.completion_tokens ?? 0,
+            };
+            if (text)
+                args.onEvent?.({ type: "text_delta", delta: text });
+            args.onEvent?.({ type: "message_end", result });
+            return result;
+        }
+        // ── Streaming path (no tools) ────────────────────────────────
         if (!res.body)
             throw new Error("No response body from local LLM server");
         let text = "";
@@ -215,6 +273,35 @@ export class LocalAdapter {
             if (toolCalls.length > 0) {
                 text = text.replace(/<\|tool_call\|>[\s\S]*?<tool_call\|>/g, "").trim();
                 text = text.replace(/call:\w+\{[\s\S]*?\}(?:<tool_call\|>|$)/g, "").trim();
+            }
+        }
+        // Qwen3.5 vllm-mlx fallback: tool calls appear as text in the format
+        // <function=name><parameter=key>value</parameter></function>
+        if (toolCalls.length === 0 && text.includes("<function=")) {
+            const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+            let fm;
+            while ((fm = fnPattern.exec(text)) !== null) {
+                try {
+                    const name = fm[1];
+                    const paramBlock = fm[2];
+                    const params = {};
+                    const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+                    let pm;
+                    while ((pm = paramPattern.exec(paramBlock)) !== null) {
+                        params[pm[1]] = pm[2].trim();
+                    }
+                    toolCalls.push({
+                        id: `call_${Date.now().toString(36)}_${toolCalls.length}`,
+                        name,
+                        input: params,
+                    });
+                }
+                catch { /* skip */ }
+            }
+            if (toolCalls.length > 0) {
+                // Remove tool call text + thinking from visible output
+                text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                text = text.replace(/<function=[\s\S]*?<\/function>/g, "").trim();
             }
         }
         if (aborted) {

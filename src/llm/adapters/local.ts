@@ -128,13 +128,16 @@ export class LocalAdapter implements LlmAdapter {
       model: args.model ?? this.defaultModel,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens ?? 4096,
-      stream: true,
+      // Non-streaming when tools present — vllm-mlx streaming doesn't parse tool_calls
+      stream: !hasTools,
       // Sampling params — read from env or use sensible defaults.
       // Gemma4: temp=1.0, top_p=0.95, top_k=64
-      // Qwen3.5: temp=0.7, top_p=0.95, top_k=20, presence_penalty=1.5
+      // Qwen3.5 thinking: temp=0.6, top_p=0.95, top_k=20, min_p=0, presence_penalty=1.5
       top_k: Number(process.env.LLM_TOP_K) || 64,
       top_p: Number(process.env.LLM_TOP_P) || 0.95,
       repetition_penalty: Number(process.env.LLM_REPETITION_PENALTY) || 1.0,
+      ...(process.env.LLM_TEMPERATURE ? { temperature: Number(process.env.LLM_TEMPERATURE) } : {}),
+      ...(process.env.LLM_MIN_P ? { min_p: Number(process.env.LLM_MIN_P) } : {}),
       ...(process.env.LLM_PRESENCE_PENALTY ? { presence_penalty: Number(process.env.LLM_PRESENCE_PENALTY), presence_context_size: 256 } : {}),
     };
 
@@ -157,6 +160,77 @@ export class LocalAdapter implements LlmAdapter {
       throw new Error(`Local LLM error ${res.status}: ${errText}`);
     }
 
+    // ── Non-streaming path (when tools present) ────────────────────
+    if (hasTools) {
+      const json = await res.json() as Record<string, unknown>;
+      const choices = json.choices as Array<Record<string, unknown>> | undefined;
+      const msg = choices?.[0]?.message as Record<string, unknown> | undefined;
+      const usage = json.usage as Record<string, number> | undefined;
+
+      let text = typeof msg?.content === "string" ? msg.content : "";
+      const toolCalls: ToolCall[] = [];
+
+      // mlx-lm sends thinking as a separate `reasoning` field — surface it with [think] tag
+      const reasoning = typeof msg?.reasoning === "string" ? msg.reasoning : "";
+      if (reasoning) {
+        args.onEvent?.({ type: "text_delta", delta: `[think] ${reasoning}\n` });
+      }
+
+      // Strip thinking from content (in case some models emit <think> inline)
+      text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
+      // Parse tool_calls from response
+      const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;
+      if (tc) {
+        for (const call of tc) {
+          const fn = call.function as Record<string, unknown> | undefined;
+          if (!fn?.name) continue;
+          try {
+            const parsed = typeof fn.arguments === "string"
+              ? JSON.parse(fn.arguments) : fn.arguments ?? {};
+            toolCalls.push({
+              id: (call.id as string) ?? `call_${Date.now().toString(36)}`,
+              name: fn.name as string,
+              input: parsed,
+            });
+          } catch { /* skip */ }
+        }
+      }
+
+      // Fallback: parse <function=name> from text OR reasoning if no tool_calls
+      // Qwen3.5 sometimes emits tool calls inside <think>…</think>, which mlx-lm
+      // routes to `reasoning`. We scan both as a safety net.
+      if (toolCalls.length === 0) {
+        const scanTargets = [text, reasoning];
+        for (const source of scanTargets) {
+          if (!source || !source.includes("<function=")) continue;
+          const fnPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+          let fm;
+          while ((fm = fnPattern.exec(source)) !== null) {
+            const params: Record<string, string> = {};
+            const pp = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+            let pm;
+            while ((pm = pp.exec(fm[2])) !== null) params[pm[1]] = pm[2].trim();
+            toolCalls.push({ id: `call_${Date.now().toString(36)}_${toolCalls.length}`, name: fm[1], input: params });
+          }
+          if (toolCalls.length > 0) break;
+        }
+        if (toolCalls.length > 0) text = text.replace(/<function=[\s\S]*?<\/function>/g, "").trim();
+      }
+
+      const result: ThinkResult = {
+        text,
+        toolCalls,
+        stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+        inputTokens: usage?.prompt_tokens ?? 0,
+        outputTokens: usage?.completion_tokens ?? 0,
+      };
+      if (text) args.onEvent?.({ type: "text_delta", delta: text });
+      args.onEvent?.({ type: "message_end", result });
+      return result;
+    }
+
+    // ── Streaming path (no tools) ────────────────────────────────
     if (!res.body) throw new Error("No response body from local LLM server");
 
     let text = "";

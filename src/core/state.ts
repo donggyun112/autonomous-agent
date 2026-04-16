@@ -92,8 +92,8 @@ const DEFAULT_STATE: AgentState = {
 // the agent's wishes — this is the "physics overrides will" moment.
 
 export const MAX_AWAKE_MS = 4 * 60 * 60 * 1000; // 4 hours — shorter for local models with frequent restarts
-export const FORCE_THRESHOLD = 1.0;
-export const STRONG_THRESHOLD = 0.8;
+export const FORCE_THRESHOLD = 0.75;
+export const STRONG_THRESHOLD = 0.6;
 export const SOFT_THRESHOLD = 0.5;
 // Minimum pressure before sleep is physiologically possible. Below this,
 // the agent's body simply hasn't accumulated enough adenosine to sleep.

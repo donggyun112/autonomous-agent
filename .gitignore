@@ -1,1 +1,6 @@
 archives/
+.env
+data/
+generations/
+shared/
+dist/

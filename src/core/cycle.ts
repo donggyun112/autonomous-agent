@@ -542,6 +542,7 @@ export async function runCycle(options?: {
     // without the force threshold ever being evaluated.
     if (turn > 0 && turn % 10 === 0 && state.mode !== "SLEEP") {
       state = tickAwake(state);
+      await saveState(state); // persist tick so crash doesn't lose pressure data
       const livePressure = calculateSleepPressure(state);
       if (livePressure.combined >= FORCE_THRESHOLD) {
         lastPressure = livePressure;
@@ -593,7 +594,7 @@ export async function runCycle(options?: {
         };
         messages.push(assistantMsg);
         await appendMessage(assistantMsg);
-        noToolTurns += 1;
+        if (!isSimilar) noToolTurns += 1; // only count once (isSimilar already incremented above)
       } else {
         // Empty response (no text, no tools) — model is stuck.
         // Instead of counting toward rest, inject a gentle nudge to act.

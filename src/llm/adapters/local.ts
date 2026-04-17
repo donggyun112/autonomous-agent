@@ -265,6 +265,7 @@ export class LocalAdapter implements LlmAdapter {
             }
             if (repeats >= 3) {
               const firstIdx = text.indexOf(last);
+              if (firstIdx === -1) break; // safety: substring not found
               text = text.slice(0, firstIdx + last.length).trimEnd();
               aborted = true;
               break;

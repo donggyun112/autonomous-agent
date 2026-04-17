@@ -223,7 +223,12 @@ export class MemoryGraph {
       };
       const mem: Memory = { ...defaults, ...m };
       if (!mem.embedding || mem.embedding.length === 0) {
-        mem.embedding = await embedTextAsync(mem.content);
+        try {
+          mem.embedding = await embedTextAsync(mem.content);
+        } catch {
+          // Fallback: zero vector so graph operations don't crash
+          mem.embedding = new Array(384).fill(0);
+        }
       }
       this.memories[mid] = mem;
     }

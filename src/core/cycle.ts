@@ -895,6 +895,19 @@ export async function runCycle(options?: {
     }
   }
 
+  // Safety net: if SLEEP loop ended without transitioning to WAKE
+  // (model never called transition("WAKE")), force the transition now.
+  // Without this, the agent gets stuck in SLEEP→SLEEP loops.
+  if (state.mode === "SLEEP" && result !== "transitioned") {
+    try {
+      const sleepReport = await runSleepConsolidation();
+      if (sleepReport) observer?.onSleepEnd?.(sleepReport);
+    } catch (err) {
+      observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
+    }
+    state = await loadState();
+  }
+
   await saveState(state);
 
   // Save trace for this cycle.

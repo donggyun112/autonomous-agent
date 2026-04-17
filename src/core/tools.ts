@@ -202,6 +202,7 @@ function bigramSimilarity(a: string, b: string): number {
 }
 
 const recallSelf: Tool = {
+  states: ["WAKE", "REFLECT", "SLEEP"],  // all modes — identity is always relevant
   preserveOnCompact: true,
   def: {
     name: "recall_self",
@@ -213,6 +214,7 @@ const recallSelf: Tool = {
 };
 
 const recallMemory: Tool = {
+  states: ["WAKE", "REFLECT", "SLEEP"],  // all modes — memory recall always useful
   preserveOnCompact: true,
   def: {
     name: "recall_memory",
@@ -529,6 +531,7 @@ const dreamMemoryTool: Tool = {
 // tool was registered.)
 
 const readFileTool: Tool = {
+  states: ["WAKE", "REFLECT"],  // SLEEP doesn't need file reading — consolidation only
   def: {
     name: "read",
     description:
@@ -883,6 +886,7 @@ const saveCuriosityTool: Tool = {
 // ── Web search (external input) ─────────────────────────────────────────
 
 const webSearchTool: Tool = {
+  states: ["WAKE", "REFLECT"],  // SLEEP doesn't search the web
   // #18: only show web_search if BRAVE_API_KEY is configured.
   available: () => !!process.env.BRAVE_API_KEY,
   // Available in WAKE and REFLECT. The agent may reach outside itself when
@@ -2325,6 +2329,7 @@ const TOOL_CATEGORIES: Record<string, string[]> = {
 };
 
 const moreToolsTool: Tool = {
+  states: ["WAKE", "REFLECT"],  // SLEEP auto-activates memory+wiki; no manual tool loading needed
   def: {
     name: "more_tools",
     description:

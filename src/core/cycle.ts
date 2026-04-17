@@ -141,7 +141,9 @@ export async function runCycle(options?: {
   // No artificial turn limit — the agent thinks continuously until it
   // transitions or rests. The old default of 12 created false cycle
   // boundaries. Pass maxTurns only for testing or resource caps.
-  const maxTurns = options?.maxTurns ?? Infinity;
+  // SLEEP gets a hard turn cap — consolidation shouldn't run forever.
+  // WAKE/REFLECT use Infinity (bounded by pressure-based forced transitions).
+  const maxTurns = options?.maxTurns ?? (state.mode === "SLEEP" ? 30 : Infinity);
   const observer = options?.observer;
   const cycleStartTime = Date.now();
   let state = await loadState();
@@ -186,13 +188,14 @@ export async function runCycle(options?: {
   // SLEEP state: LLM-driven memory consolidation + automated cleanup.
   // Phase 1: The agent manages its own memory via LLM loop (same as WAKE/REFLECT).
   // Phase 2: Automated steps (wiki clustering, skill extraction, wake handoff).
-  if (state.mode === "SLEEP") {
+  // Phase 3: Force transition to WAKE — SLEEP never persists across cycles.
+  const enteringSleep = state.mode === "SLEEP";
+  if (enteringSleep) {
     await clearSession();
     observer?.onSleepStart?.();
     // Falls through to the main cycle loop below with mode="SLEEP".
-    // sleep.md prompt guides the agent to manage memory, then transition to WAKE.
-    // When transition(to="WAKE") is detected, runSleepConsolidation() runs
-    // for the automated parts before completing.
+    // sleep.md prompt guides the agent to manage memory.
+    // After the loop, we FORCE WAKE regardless of whether the model called transition.
   }
 
   // Step 0 — Identity reconstitution. Always read whoAmI before doing anything.
@@ -895,17 +898,22 @@ export async function runCycle(options?: {
     }
   }
 
-  // Safety net: if SLEEP loop ended without transitioning to WAKE
-  // (model never called transition("WAKE")), force the transition now.
-  // Without this, the agent gets stuck in SLEEP→SLEEP loops.
-  if (state.mode === "SLEEP" && result !== "transitioned") {
+  // SLEEP exit guarantee: if we entered this cycle in SLEEP mode and
+  // the model didn't transition to WAKE, force it now. SLEEP NEVER
+  // persists across cycles — one SLEEP cycle = one consolidation round.
+  if (enteringSleep && state.mode === "SLEEP") {
     try {
       const sleepReport = await runSleepConsolidation();
       if (sleepReport) observer?.onSleepEnd?.(sleepReport);
     } catch (err) {
-      observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
+      observer?.onToolEnd?.("(sleep-auto-force)", (err as Error).message);
     }
+    // Even if consolidation failed, force WAKE to prevent infinite SLEEP loop.
     state = await loadState();
+    if (state.mode === "SLEEP") {
+      state = resetAfterSleep(state);
+      state = await transition(state, "WAKE", "forced wake after sleep cycle (safety net)");
+    }
   }
 
   await saveState(state);

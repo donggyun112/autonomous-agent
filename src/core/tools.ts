@@ -117,6 +117,9 @@ const PROTECTED_PATHS = [
   "package.json",
   "pnpm-lock.yaml",
   "tsconfig.json",
+  ".env",
+  ".env.research",
+  ".env.example",
 ];
 
 function isProtectedPath(filePath: string): boolean {

@@ -700,8 +700,23 @@ const globTool: Tool = {
   handler: async (input) => {
     const { execFileSync } = await import("child_process");
     const { resolve } = await import("path");
-    const pattern = String(input.pattern ?? "");
-    const dir = input.path ? resolve(String(input.path)) : resolve(".");
+    let pattern = String(input.pattern ?? "");
+    let pathInput = input.path ? String(input.path) : "";
+    // Defensive: models sometimes embed the full absolute path + glob in a
+    // single arg (either `pattern` or `path`, e.g. "/abs/dir/**/*.ts").
+    // Split the first glob-bearing segment back into dir + pattern.
+    const source = !pattern ? pathInput : (!pathInput && pattern.startsWith("/") ? pattern : "");
+    if (source && /[*?[]/.test(source)) {
+      const m = source.match(/^(.*?)(?:\/)?([^/]*[*?[][^/]*(?:\/[^/]*)*)$/);
+      if (m) {
+        pathInput = m[1] || ".";
+        pattern = m[2];
+      } else {
+        pattern = source;
+        pathInput = ".";
+      }
+    }
+    const dir = pathInput ? resolve(pathInput) : resolve(".");
     try {
       const out = execFileSync("find", [dir, "-type", "f", "-name", pattern.includes("/") ? pattern.split("/").pop()! : pattern], {
         encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 1024,

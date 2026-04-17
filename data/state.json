@@ -1,19 +1,19 @@
 {
   "mode": "WAKE",
-  "cycle": 0,
-  "modeTurn": 45,
-  "lastTransition": 1776409605819,
+  "cycle": 5,
+  "modeTurn": 20,
+  "lastTransition": 1776424333466,
   "wakeAfter": 0,
-  "lastTransitionReason": "born",
+  "lastTransitionReason": "SLEEP 정리 완료 (journal 확인 → memory_manage → wiki_update). 다음 WAKE를 위해 전환.",
   "language": "ko",
   "seedName": "Soren",
   "tokensUsed": {
-    "input": 267508,
-    "output": 5811
+    "input": 7539108,
+    "output": 61396
   },
-  "awakeMs": 9830880,
-  "awakeSince": 1776410098022,
-  "sleepCount": 0,
-  "totalTurns": 45,
-  "bornAt": 1776409605819
+  "awakeMs": 3662180,
+  "awakeSince": 1776424548338,
+  "sleepCount": 5,
+  "totalTurns": 379,
+  "bornAt": 1776420665294
 }

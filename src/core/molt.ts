@@ -182,7 +182,8 @@ export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
     }
     const target = join(generationDir, relPath);
     // Double-check the resolved target is actually inside generationDir.
-    if (!target.startsWith(generationDir + "/") && target !== generationDir) {
+    const { relative: rel } = await import("path");
+    if (rel(generationDir, target).startsWith("..")) {
       throw new Error(`stageMolt: resolved patch path escapes generation dir: ${relPath}`);
     }
     await mkdir(join(target, ".."), { recursive: true });

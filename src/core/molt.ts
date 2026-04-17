@@ -205,7 +205,7 @@ export async function stageMolt(args: StageMoltArgs): Promise<StageResult> {
   const imageTag = imageTagFor(generationId);
   const build = await spawnSupervised({
     cmd: "docker",
-    cmdArgs: ["build", "--pull=never", "-t", imageTag, "-f", join(generationDir, "Dockerfile"), generationDir],
+    cmdArgs: ["build", "-t", imageTag, "-f", join(generationDir, "Dockerfile"), generationDir],
     overallTimeoutMs: 10 * 60 * 1000,   // 10min for docker build
     noOutputTimeoutMs: 3 * 60 * 1000,   // 3min no-output
   }).wait();

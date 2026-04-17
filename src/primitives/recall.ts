@@ -92,6 +92,13 @@ export async function pruneWeak(options?: { minAgeSec?: number; maxToPrune?: num
   return g.pruneWeak(options);
 }
 
+export async function deleteMemory(memoryId: string): Promise<boolean> {
+  const g = await getGraph();
+  const result = await g.delete(memoryId);
+  await g.save();
+  return result;
+}
+
 export async function findClusters(options?: { minSharedKeys?: number; minClusterSize?: number; maxClusters?: number }) {
   const g = await getGraph();
   return g.findClusters(options);

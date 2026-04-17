@@ -2397,8 +2397,9 @@ const moreToolsTool: Tool = {
 
 // Mode → categories that should auto-activate when entering that mode.
 const AUTO_ACTIVATE_BY_MODE: Partial<Record<string, string[]>> = {
-  SLEEP: ["memory", "wiki"],     // SLEEP needs memory consolidation + wiki update
-  REFLECT: ["memory", "wiki"],   // REFLECT needs memory recall + wiki
+  WAKE: ["memory", "wiki", "file"],  // WAKE needs recall + wiki reference + file ops
+  SLEEP: ["memory", "wiki"],         // SLEEP needs memory consolidation + wiki update
+  REFLECT: ["memory", "wiki"],       // REFLECT needs memory recall + wiki
 };
 
 // Reset activated tools at cycle start (called from cycle.ts).

@@ -1,2 +1,0 @@
-SLEEP mode test: Full Molt confirmed via direct API calls
-Discord OK. Git OK. Moltbook OK.

@@ -504,7 +504,11 @@ export async function runCycle(options?: {
   }
 
   let toolCallCount = 0;
+  let visibleToolCallCount = 0;  // excludes sentinel tools (transition/rest)
+  let actualTurns = 0;           // survives transition reset of modeTurn
   let result: CycleResult["reason"] = "turn_budget";
+  let lastPressure: SleepPressure = pressure; // snapshot for summary
+  let cycleSleepReport: SleepReport | undefined;
   let noToolTurns = 0;
   const recentCalls: Array<{ name: string; inputKey: string }> = [];
   let prevTextOutput = "";  // track previous turn's text for cross-turn repetition detection
@@ -540,6 +544,7 @@ export async function runCycle(options?: {
       state = tickAwake(state);
       const livePressure = calculateSleepPressure(state);
       if (livePressure.combined >= FORCE_THRESHOLD) {
+        lastPressure = livePressure;
         if (state.mode === "WAKE") {
           state = await transition(state, "REFLECT", `forced reflect mid-cycle (pressure ${livePressure.combined.toFixed(2)})`);
         } else {
@@ -565,6 +570,7 @@ export async function runCycle(options?: {
     state.tokensUsed.output += response.outputTokens;
     state.modeTurn += 1;
     state.totalTurns += 1;
+    actualTurns += 1;
 
     // If the response had no tool calls, auto-journal and continue.
     // The session stays alive so the agent builds on its own thoughts.
@@ -661,6 +667,7 @@ export async function runCycle(options?: {
       toolCallCount += 1;
 
       // Special handling: transition + rest are sentinels handled by the runner.
+      // These are NOT visible in the observer, so don't count them.
       if (call.name === "transition") {
         const to = String(call.input.to ?? "") as Mode;
         const reason = String(call.input.reason ?? "(no reason)");
@@ -696,6 +703,7 @@ export async function runCycle(options?: {
         continue;
       }
 
+      visibleToolCallCount += 1;
       observer?.onToolStart?.(call.name, call.input);
       const toolSpan = startSpan(call.name, cycleSpan);
       const toolStart = Date.now();
@@ -866,6 +874,9 @@ export async function runCycle(options?: {
         }
       }
 
+      // Snapshot pressure before transition (transition/sleep may reset awakeMs).
+      lastPressure = calculateSleepPressure(state);
+
       // Save wake intention + context for self-continuity across sleep.
       if (transitionRequested.to === "SLEEP") {
         state.wakeIntention = transitionRequested.wakeIntention;
@@ -881,6 +892,7 @@ export async function runCycle(options?: {
       if (wasInSleep && transitionRequested.to === "WAKE") {
         try {
           const sleepReport = await runSleepConsolidation();
+          cycleSleepReport = sleepReport;
           if (sleepReport) observer?.onSleepEnd?.(sleepReport);
         } catch (err) {
           observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
@@ -903,8 +915,10 @@ export async function runCycle(options?: {
   // the model didn't transition to WAKE, force it now. SLEEP NEVER
   // persists across cycles — one SLEEP cycle = one consolidation round.
   if (enteringSleep && state.mode === "SLEEP") {
+    lastPressure = calculateSleepPressure(state);
     try {
       const sleepReport = await runSleepConsolidation();
+      cycleSleepReport = sleepReport;
       if (sleepReport) observer?.onSleepEnd?.(sleepReport);
     } catch (err) {
       observer?.onToolEnd?.("(sleep-auto-force)", (err as Error).message);
@@ -969,5 +983,12 @@ export async function runCycle(options?: {
     // cost tracking must never crash the cycle
   }
 
-  return { state, turns: state.modeTurn, reason: result, toolCalls: toolCallCount };
+  return {
+    state,
+    turns: actualTurns,
+    reason: result,
+    toolCalls: visibleToolCallCount,
+    pressure: lastPressure,
+    sleepReport: cycleSleepReport,
+  };
 }

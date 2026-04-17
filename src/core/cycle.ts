@@ -536,7 +536,11 @@ export async function runCycle(options?: {
       state = tickAwake(state);
       const livePressure = calculateSleepPressure(state);
       if (livePressure.combined >= FORCE_THRESHOLD) {
-        state = await transition(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
+        if (state.mode === "WAKE") {
+          state = await transition(state, "REFLECT", `forced reflect mid-cycle (pressure ${livePressure.combined.toFixed(2)})`);
+        } else {
+          state = await transition(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
+        }
         result = "transitioned";
         await saveState(state);
         break;

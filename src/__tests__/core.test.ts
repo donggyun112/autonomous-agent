@@ -152,7 +152,8 @@ describe("sleep pressure", () => {
       tokensUsed: { input: 0, output: 0 }, totalTurns: 0, bornAt: 0,
     };
     const ticked = tickAwake(base, 5000);
-    expect(ticked.awakeMs).toBe(80000); // 일관된 기대치로 조정
+    const { TIME_SCALE } = await import("../core/state.js");
+    expect(ticked.awakeMs).toBe(4000 * TIME_SCALE);
     expect(ticked.awakeSince).toBe(5000);
   });
 

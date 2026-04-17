@@ -176,15 +176,14 @@ export async function runCycle(options?: {
   // will" moment — the agent does not get to refuse.
   // Route through REFLECT first so the agent always reviews before sleeping.
   const pressure = calculateSleepPressure(state);
-  if (state.mode !== "SLEEP" && pressure.combined >= FORCE_THRESHOLD) {
-    if (state.mode === "WAKE") {
-      // WAKE → REFLECT first, then next cycle will push REFLECT → SLEEP
-      state = await transition(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
-    } else {
-      // REFLECT → SLEEP
-      state = await transition(state, "SLEEP", `forced by sleep pressure (${pressure.combined.toFixed(2)})`);
-    }
+  if (state.mode === "WAKE" && pressure.combined >= FORCE_THRESHOLD) {
+    // WAKE → REFLECT. REFLECT is never skipped — the agent must self-reflect
+    // before sleeping. The mid-cycle check will push REFLECT → SLEEP after
+    // the agent has had at least a few turns to reflect.
+    state = await transition(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
   }
+  // NOTE: REFLECT is exempt from the pressure-gate here. It runs its turns
+  // and the mid-cycle check (turn >= 5) handles REFLECT → SLEEP.
 
   // SLEEP state: LLM-driven memory consolidation + automated cleanup.
   // Phase 1: The agent manages its own memory via LLM loop (same as WAKE/REFLECT).
@@ -548,12 +547,16 @@ export async function runCycle(options?: {
         lastPressure = livePressure;
         if (state.mode === "WAKE") {
           state = await transition(state, "REFLECT", `forced reflect mid-cycle (pressure ${livePressure.combined.toFixed(2)})`);
-        } else {
+          result = "transitioned";
+          await saveState(state);
+          break;
+        } else if (state.mode === "REFLECT" && turn >= 5) {
+          // REFLECT gets at least 5 turns before forced sleep
           state = await transition(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
+          result = "transitioned";
+          await saveState(state);
+          break;
         }
-        result = "transitioned";
-        await saveState(state);
-        break;
       }
     }
 
@@ -678,19 +681,41 @@ export async function runCycle(options?: {
         const wakeContext = typeof call.input.wake_context === "string"
           ? call.input.wake_context : undefined;
         if (to === "WAKE" || to === "REFLECT" || to === "SLEEP") {
-          transitionRequested = {
-            to,
-            reason,
-            wakeAfterMs: sleepMin > 0 ? sleepMin * 60_000 : undefined,
-            wakeIntention,
-            wakeContext,
-          };
+          // WAKE → SLEEP is forbidden. Must go through REFLECT first.
+          if (state.mode === "WAKE" && to === "SLEEP") {
+            transitionRequested = {
+              to: "REFLECT",
+              reason: `(redirected: tried SLEEP from WAKE) ${reason}`,
+              wakeAfterMs: sleepMin > 0 ? sleepMin * 60_000 : undefined,
+              wakeIntention,
+              wakeContext,
+            };
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: `Cannot skip REFLECT. Redirecting WAKE → REFLECT first. Reason: ${reason}`,
+            });
+          } else {
+            transitionRequested = {
+              to,
+              reason,
+              wakeAfterMs: sleepMin > 0 ? sleepMin * 60_000 : undefined,
+              wakeIntention,
+              wakeContext,
+            };
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: `Acknowledged. Transitioning to ${to}: ${reason}`,
+            });
+          }
+        } else {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: call.id,
+            content: `Invalid transition target: ${to}`,
+          });
         }
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: `Acknowledged. Transitioning to ${to}: ${reason}`,
-        });
         continue;
       }
 
@@ -877,6 +902,19 @@ export async function runCycle(options?: {
 
       // Snapshot pressure before transition (transition/sleep may reset awakeMs).
       lastPressure = calculateSleepPressure(state);
+
+      // Sleep consolidation gate: agent must spend at least 3 turns
+      // doing memory work before it can exit SLEEP.
+      const MIN_SLEEP_TURNS = 3;
+      if (state.mode === "SLEEP" && transitionRequested.to === "WAKE" && turn < MIN_SLEEP_TURNS) {
+        const rejectMsg: Message = {
+          role: "user",
+          content: `[transition rejected] SLEEP consolidation이 아직 완료되지 않았다. 최소 ${MIN_SLEEP_TURNS}턴 이상 수면 작업을 수행해야 한다. recall_recent_journal → memory_manage → wiki_update 순서로 진행해라. 지금은 turn ${turn}이다.`,
+        };
+        messages.push(rejectMsg);
+        await appendMessage(rejectMsg);
+        continue;
+      }
 
       // Save wake intention + context for self-continuity across sleep.
       if (transitionRequested.to === "SLEEP") {

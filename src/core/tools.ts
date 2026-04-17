@@ -44,6 +44,7 @@ import { getCached, setCache } from "./tool-cache.js";
 
 import { measureDrift, reconstitute, revise } from "./identity.js";
 import {
+  deleteMemory,
   dream as dreamMemory,
   linkMemories,
   memoryStats,
@@ -354,7 +355,10 @@ const memoryManageTool: Tool = {
       return `${usageNote}\n${JSON.stringify(list, null, 2)}`;
     }
 
-    if (action === "compress" && input.memory_id && input.compressed) {
+    if (action === "compress") {
+      if (!input.memory_id || !input.compressed) {
+        return `${usageNote}\nerror: compress requires both memory_id and compressed fields`;
+      }
       await dreamMemory({
         memoryId: String(input.memory_id),
         compressedContent: String(input.compressed),
@@ -363,8 +367,13 @@ const memoryManageTool: Tool = {
     }
 
     if (action === "delete" && input.memory_id) {
-      await pruneWeak({ maxToPrune: 1 }); // TODO: direct delete by ID
-      return `${usageNote}\ndelete requested: ${input.memory_id} (note: current pruneWeak doesn't support direct ID delete — will be improved)`;
+      const deleted = await deleteMemory(String(input.memory_id));
+      if (deleted) {
+        const freshStats = await memoryStats();
+        const freshPct = Math.round((freshStats.activeMemoryCount * 200 / MAX_MEMORY_CHARS) * 100);
+        return `[memory: ${freshStats.activeMemoryCount} memories, ${freshStats.keyCount} keys, ${freshStats.linkCount} links, ~${freshPct}% capacity]\ndeleted: ${input.memory_id}`;
+      }
+      return `${usageNote}\nerror: memory ${input.memory_id} not found`;
     }
 
     if (action === "rekey" && input.memory_id && Array.isArray(input.new_keys)) {

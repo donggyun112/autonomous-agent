@@ -416,14 +416,29 @@ export async function createLiveObserver(): Promise<{
       const contW = cols() - 9;
       const contPrefix = `${gutter(currentMode)}      `;
 
-      const srcLines = result.split("\n");
+      // Truncate long results: head 5 + tail 2, skip middle
+      const MAX_HEAD = 5;
+      const MAX_TAIL = 2;
+      let srcLines = result.split("\n");
+      let truncated = 0;
+      if (srcLines.length > MAX_HEAD + MAX_TAIL + 1) {
+        truncated = srcLines.length - MAX_HEAD - MAX_TAIL;
+        srcLines = [
+          ...srcLines.slice(0, MAX_HEAD),
+          `… ${truncated} lines omitted …`,
+          ...srcLines.slice(-MAX_TAIL),
+        ];
+      }
+
       for (let li = 0; li < srcLines.length; li++) {
+        const isTruncMarker = truncated > 0 && li === MAX_HEAD;
+        const lineColor = isTruncMarker ? DM : color;
         const segments = softWrap(srcLines[li], li === 0 ? firstW : contW);
         for (let si = 0; si < segments.length; si++) {
           if (li === 0 && si === 0) {
-            w(`${gutter(currentMode)}    ${marker} ${color}${segments[si]}${R}\n`);
+            w(`${gutter(currentMode)}    ${marker} ${lineColor}${segments[si]}${R}\n`);
           } else {
-            w(`${contPrefix}${color}${segments[si]}${R}\n`);
+            w(`${contPrefix}${lineColor}${segments[si]}${R}\n`);
           }
         }
       }

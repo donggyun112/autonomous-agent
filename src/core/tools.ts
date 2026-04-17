@@ -2186,6 +2186,7 @@ const CORE_TOOLS: Tool[] = [
   journal,
   recallSelf,
   recallMemory,
+  recallRecentJournal, // read-only, needed in SLEEP/REFLECT — no reason to gate
   readFileTool,
   webSearchTool,
   checkInboxTool,
@@ -2201,7 +2202,7 @@ const CORE_TOOLS: Tool[] = [
 const EXTENDED_TOOLS: Tool[] = [
   // Category: memory
   memoryManageTool,
-  recallRecentJournal,
+  // recallRecentJournal — moved to CORE_TOOLS
   updateWhoAmI,
   scanRecent,
   dreamMemoryTool,
@@ -2377,9 +2378,21 @@ const moreToolsTool: Tool = {
   },
 };
 
+// Mode → categories that should auto-activate when entering that mode.
+const AUTO_ACTIVATE_BY_MODE: Partial<Record<string, string[]>> = {
+  SLEEP: ["memory", "wiki"],     // SLEEP needs memory consolidation + wiki update
+  REFLECT: ["memory", "wiki"],   // REFLECT needs memory recall + wiki
+};
+
 // Reset activated tools at cycle start (called from cycle.ts).
-export function resetActivatedTools(): void {
+// After clearing, auto-activate tools for the current mode.
+export function resetActivatedTools(mode?: string): void {
   _activatedTools.clear();
+  const autoCategories = mode ? AUTO_ACTIVATE_BY_MODE[mode] ?? [] : [];
+  for (const cat of autoCategories) {
+    const catTools = TOOL_CATEGORIES[cat];
+    if (catTools) catTools.forEach((t) => _activatedTools.add(t));
+  }
 }
 
 // All tools = core + activated extended + meta-tool.

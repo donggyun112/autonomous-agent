@@ -160,7 +160,7 @@ export async function runCycle(options?: {
 
   // Reset per-cycle state.
   resetTrace();
-  resetActivatedTools();
+  resetActivatedTools(state.mode);
   const cycleSpan = startSpan("cycle");
 
   // Tick the sleep clock first. This adds the wall-clock time elapsed since
@@ -171,9 +171,16 @@ export async function runCycle(options?: {
   // If sleep pressure has crossed the force threshold, the daemon overrides
   // the agent's wishes and pushes it into SLEEP. This is the "physics defeats
   // will" moment — the agent does not get to refuse.
+  // Route through REFLECT first so the agent always reviews before sleeping.
   const pressure = calculateSleepPressure(state);
   if (state.mode !== "SLEEP" && pressure.combined >= FORCE_THRESHOLD) {
-    state = await transition(state, "SLEEP", `forced by sleep pressure (${pressure.combined.toFixed(2)})`);
+    if (state.mode === "WAKE") {
+      // WAKE → REFLECT first, then next cycle will push REFLECT → SLEEP
+      state = await transition(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
+    } else {
+      // REFLECT → SLEEP
+      state = await transition(state, "SLEEP", `forced by sleep pressure (${pressure.combined.toFixed(2)})`);
+    }
   }
 
   // SLEEP state: LLM-driven memory consolidation + automated cleanup.

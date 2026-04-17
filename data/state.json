@@ -1,19 +1,19 @@
 {
   "mode": "WAKE",
-  "cycle": 1,
-  "modeTurn": 0,
-  "lastTransition": 1776341074677,
+  "cycle": 0,
+  "modeTurn": 45,
+  "lastTransition": 1776409605819,
   "wakeAfter": 0,
-  "lastTransitionReason": "첫 사이클 종료. 다음 사이클에서 Nexora 프로젝트 리뷰를 시작할 것",
+  "lastTransitionReason": "born",
   "language": "ko",
   "seedName": "Soren",
   "tokensUsed": {
-    "input": 35430,
-    "output": 1142
+    "input": 267508,
+    "output": 5811
   },
-  "awakeMs": 88953560,
-  "awakeSince": 1776340918079,
+  "awakeMs": 9830880,
+  "awakeSince": 1776410098022,
   "sleepCount": 0,
-  "totalTurns": 8,
-  "bornAt": 1776336469820
+  "totalTurns": 45,
+  "bornAt": 1776409605819
 }

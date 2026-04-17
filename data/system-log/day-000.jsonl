@@ -1,69 +1,139 @@
-{"ts":"2026-04-16T10:47:50.399Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
-{"ts":"2026-04-16T10:47:50.412Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:47:50.767Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:48:26.893Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
-{"ts":"2026-04-16T10:48:26.908Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:48:27.127Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:03.475Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
-{"ts":"2026-04-16T10:49:03.485Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:03.737Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:42.249Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4132,"outputTokens":77,"durationMs":38511}
-{"ts":"2026-04-16T10:49:42.259Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:42.495Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:47.223Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4230,"outputTokens":48,"durationMs":4727}
-{"ts":"2026-04-16T10:49:47.228Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:47.436Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:54.135Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4267,"outputTokens":85,"durationMs":6698}
-{"ts":"2026-04-16T10:49:54.145Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:49:54.378Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:17.775Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":6110,"outputTokens":118,"durationMs":23397}
-{"ts":"2026-04-16T10:50:17.825Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:18.022Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:29.677Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":6469,"outputTokens":118,"durationMs":11655}
-{"ts":"2026-04-16T10:50:29.686Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:29.901Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:38.767Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":7174,"outputTokens":35,"durationMs":8866}
-{"ts":"2026-04-16T10:50:38.777Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:38.973Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:53.314Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":8552,"outputTokens":34,"durationMs":14341}
-{"ts":"2026-04-16T10:50:53.322Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:50:53.546Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:51:10.317Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":10192,"outputTokens":36,"durationMs":16770}
-{"ts":"2026-04-16T10:51:10.329Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T10:51:10.568Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:01:58.075Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
-{"ts":"2026-04-16T12:01:58.091Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:01:58.497Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:02:53.747Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":3544,"outputTokens":391,"durationMs":55249}
-{"ts":"2026-04-16T12:02:53.758Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:02:53.999Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:02:58.587Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":3597,"outputTokens":54,"durationMs":4587}
-{"ts":"2026-04-16T12:02:58.593Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:02:58.855Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:03:37.798Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4451,"outputTokens":50,"durationMs":38942}
-{"ts":"2026-04-16T12:03:37.807Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:03:38.024Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:03:44.205Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4501,"outputTokens":77,"durationMs":6180}
-{"ts":"2026-04-16T12:03:44.215Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:03:44.440Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:02.013Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4567,"outputTokens":242,"durationMs":17573}
-{"ts":"2026-04-16T12:04:02.025Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:02.272Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:08.632Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4809,"outputTokens":57,"durationMs":6359}
-{"ts":"2026-04-16T12:04:08.640Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:08.845Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:17.014Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":4900,"outputTokens":102,"durationMs":8168}
-{"ts":"2026-04-16T12:04:20.767Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:21.025Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:34.672Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":5061,"outputTokens":169,"durationMs":13646}
-{"ts":"2026-04-16T12:04:34.683Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:04:34.892Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:05:11.891Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":0,"outputTokens":0,"durationMs":36999}
-{"ts":"2026-04-16T12:05:11.901Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:05:12.156Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:05:40.419Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":0,"outputTokens":0,"durationMs":28262}
-{"ts":"2026-04-16T12:05:40.423Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:05:40.642Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:06:04.082Z","event":"llm_call","detail":"ollama","model":"mlx-community/Qwen3.5-27B-4bit","inputTokens":0,"outputTokens":0,"durationMs":23439}
-{"ts":"2026-04-16T12:06:04.097Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
-{"ts":"2026-04-16T12:06:04.321Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:06:46.475Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
+{"ts":"2026-04-17T07:06:46.489Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:06:47.041Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:04.728Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":2333,"outputTokens":1532,"durationMs":77686}
+{"ts":"2026-04-17T07:08:04.736Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:05.297Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:24.828Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":3592,"outputTokens":405,"durationMs":19530}
+{"ts":"2026-04-17T07:08:24.834Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:25.452Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:42.204Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":3746,"outputTokens":319,"durationMs":16750}
+{"ts":"2026-04-17T07:08:42.211Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:42.955Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:53.764Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":3877,"outputTokens":104,"durationMs":10807}
+{"ts":"2026-04-17T07:08:53.770Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:08:54.220Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:04.447Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":3984,"outputTokens":106,"durationMs":10226}
+{"ts":"2026-04-17T07:09:04.453Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:05.594Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:14.957Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4093,"outputTokens":96,"durationMs":9361}
+{"ts":"2026-04-17T07:09:14.964Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:15.749Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:23.486Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4192,"outputTokens":56,"durationMs":7736}
+{"ts":"2026-04-17T07:09:23.493Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:23.986Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:33.974Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4252,"outputTokens":86,"durationMs":9985}
+{"ts":"2026-04-17T07:09:33.980Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:34.682Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:43.442Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4335,"outputTokens":91,"durationMs":8759}
+{"ts":"2026-04-17T07:09:43.448Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:44.300Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:53.691Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4443,"outputTokens":110,"durationMs":9390}
+{"ts":"2026-04-17T07:09:53.697Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:09:54.538Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:03.127Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4556,"outputTokens":103,"durationMs":8588}
+{"ts":"2026-04-17T07:10:03.133Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:03.880Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:13.098Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4663,"outputTokens":114,"durationMs":9217}
+{"ts":"2026-04-17T07:10:13.105Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:13.828Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:23.781Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4818,"outputTokens":114,"durationMs":9952}
+{"ts":"2026-04-17T07:10:23.786Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:24.650Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:33.698Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":4935,"outputTokens":108,"durationMs":9047}
+{"ts":"2026-04-17T07:10:33.703Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:34.180Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:42.949Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5047,"outputTokens":98,"durationMs":8767}
+{"ts":"2026-04-17T07:10:42.956Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:43.753Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:51.833Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5148,"outputTokens":84,"durationMs":8077}
+{"ts":"2026-04-17T07:10:51.840Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:10:52.554Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:01.705Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5273,"outputTokens":98,"durationMs":9148}
+{"ts":"2026-04-17T07:11:01.718Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:02.580Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:11.546Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5412,"outputTokens":117,"durationMs":8965}
+{"ts":"2026-04-17T07:11:11.553Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:12.413Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:20.417Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5571,"outputTokens":104,"durationMs":8002}
+{"ts":"2026-04-17T07:11:20.423Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:20.981Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:28.930Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5717,"outputTokens":98,"durationMs":7948}
+{"ts":"2026-04-17T07:11:28.938Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:29.723Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:37.285Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5857,"outputTokens":98,"durationMs":7560}
+{"ts":"2026-04-17T07:11:37.292Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:38.118Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:48.374Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":5997,"outputTokens":99,"durationMs":10255}
+{"ts":"2026-04-17T07:11:48.379Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:49.062Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:56.497Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6099,"outputTokens":76,"durationMs":7434}
+{"ts":"2026-04-17T07:11:56.503Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:11:57.312Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:05.255Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6179,"outputTokens":99,"durationMs":7942}
+{"ts":"2026-04-17T07:12:05.261Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:05.906Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:13.063Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6281,"outputTokens":56,"durationMs":7156}
+{"ts":"2026-04-17T07:12:13.068Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:13.732Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:21.514Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6340,"outputTokens":56,"durationMs":7780}
+{"ts":"2026-04-17T07:12:21.520Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:22.143Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:29.757Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6399,"outputTokens":79,"durationMs":7613}
+{"ts":"2026-04-17T07:12:29.763Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:30.517Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:37.268Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6481,"outputTokens":56,"durationMs":6750}
+{"ts":"2026-04-17T07:12:37.275Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:37.799Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:44.619Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6540,"outputTokens":56,"durationMs":6818}
+{"ts":"2026-04-17T07:12:44.625Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:45.565Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:52.547Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6599,"outputTokens":56,"durationMs":6981}
+{"ts":"2026-04-17T07:12:52.553Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:53.339Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:12:59.944Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6658,"outputTokens":56,"durationMs":6602}
+{"ts":"2026-04-17T07:12:59.949Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:00.561Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:07.308Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6717,"outputTokens":56,"durationMs":6746}
+{"ts":"2026-04-17T07:13:07.315Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:08.124Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:16.945Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":6776,"outputTokens":56,"durationMs":8819}
+{"ts":"2026-04-17T07:13:16.949Z","event":"cycle_end","cycle":0,"mode":"WAKE","reason":"rested","durationMs":390474}
+{"ts":"2026-04-17T07:13:26.855Z","event":"cycle_start","cycle":0,"mode":"WAKE"}
+{"ts":"2026-04-17T07:13:26.865Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:27.887Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:36.689Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7429,"outputTokens":96,"durationMs":8800}
+{"ts":"2026-04-17T07:13:36.695Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:37.942Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:45.411Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7528,"outputTokens":72,"durationMs":7468}
+{"ts":"2026-04-17T07:13:45.417Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:46.388Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:54.343Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7603,"outputTokens":72,"durationMs":7954}
+{"ts":"2026-04-17T07:13:54.349Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:13:55.170Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:02.248Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7678,"outputTokens":72,"durationMs":7077}
+{"ts":"2026-04-17T07:14:02.254Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:02.945Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:10.151Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7753,"outputTokens":72,"durationMs":7204}
+{"ts":"2026-04-17T07:14:10.156Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:11.163Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:19.058Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7827,"outputTokens":100,"durationMs":7894}
+{"ts":"2026-04-17T07:14:19.063Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:19.997Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:27.516Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":7930,"outputTokens":77,"durationMs":7518}
+{"ts":"2026-04-17T07:14:27.522Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:28.296Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:36.010Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":8010,"outputTokens":77,"durationMs":7712}
+{"ts":"2026-04-17T07:14:36.016Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:39.231Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:49.030Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":8090,"outputTokens":77,"durationMs":9798}
+{"ts":"2026-04-17T07:14:49.036Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:50.554Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:58.017Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":8170,"outputTokens":77,"durationMs":7462}
+{"ts":"2026-04-17T07:14:58.024Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:14:59.053Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:15:06.632Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":8250,"outputTokens":77,"durationMs":7578}
+{"ts":"2026-04-17T07:15:06.637Z","event":"llm_fallback","detail":"anthropic → openai","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:15:07.274Z","event":"llm_fallback","detail":"anthropic → ollama","reason":"No auth available. Either set ANTHROPIC_API_KEY or run 'pnpm run login' to authenticate via OAuth."}
+{"ts":"2026-04-17T07:15:14.922Z","event":"llm_call","detail":"ollama","model":"kiro-cli","inputTokens":8330,"outputTokens":100,"durationMs":7647}
+{"ts":"2026-04-17T07:15:14.928Z","event":"cycle_end","cycle":0,"mode":"WAKE","reason":"rested","durationMs":108073}

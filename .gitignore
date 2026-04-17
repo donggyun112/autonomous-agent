@@ -4,3 +4,4 @@ data/
 generations/
 shared/
 dist/
+.env.research

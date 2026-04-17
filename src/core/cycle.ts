@@ -702,7 +702,7 @@ export async function runCycle(options?: {
       let out: string;
       let rawOut: string;
       try {
-        const dispatched = await dispatchTool(tools, call);
+        const dispatched = await dispatchTool(tools, call, state.mode);
         out = dispatched.result;
         rawOut = dispatched.raw;
       } catch (dispatchErr) {

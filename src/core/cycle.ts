@@ -47,6 +47,7 @@ import {
   MIN_HOMEOSTATIC_FOR_SLEEP,
   MIN_SLEEP_THRESHOLD,
   loadState,
+  resetAfterSleep,
   saveState,
   tickAwake,
   transition,
@@ -141,12 +142,12 @@ export async function runCycle(options?: {
   // No artificial turn limit — the agent thinks continuously until it
   // transitions or rests. The old default of 12 created false cycle
   // boundaries. Pass maxTurns only for testing or resource caps.
-  // SLEEP gets a hard turn cap — consolidation shouldn't run forever.
-  // WAKE/REFLECT use Infinity (bounded by pressure-based forced transitions).
-  const maxTurns = options?.maxTurns ?? (state.mode === "SLEEP" ? 30 : Infinity);
   const observer = options?.observer;
   const cycleStartTime = Date.now();
   let state = await loadState();
+  // SLEEP gets a hard turn cap — consolidation shouldn't run forever.
+  // WAKE/REFLECT use Infinity (bounded by pressure-based forced transitions).
+  const maxTurns = options?.maxTurns ?? (state.mode === "SLEEP" ? 30 : Infinity);
 
   // Log cycle start.
   try {

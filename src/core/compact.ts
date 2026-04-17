@@ -10,7 +10,7 @@
 // snip + microcompact + autocompact + collapse layered together). For our
 // contemplative agent it does not need to be elaborate.
 
-import { resolveProviderConfig, think, type Message } from "../llm/client.js";
+import { think, type Message } from "../llm/client.js";
 import { isToolPreserved } from "./tools.js";
 import { logSystem } from "./system-log.js";
 
@@ -18,23 +18,11 @@ import { logSystem } from "./system-log.js";
 // calling the API counter every turn — fast, cheap, good enough.
 const CHARS_PER_TOKEN = 4;
 
-// Hermes pattern: trigger compaction at 50% of model context window.
-// Model context sizes (tokens):
-const MODEL_CONTEXT: Record<string, number> = {
-  "gpt-4o": 128_000,
-  "gpt-4o-mini": 128_000,
-  "gpt-4.1-mini": 1_000_000,
-  "gpt-4.1-nano": 1_000_000,
-  "gpt-5.4-mini": 1_000_000,
-  "gpt-5.4-nano": 1_000_000,
-  "claude-sonnet-4-6": 200_000,
-  "claude-haiku-4-5-20251001": 200_000,
-  "claude-opus-4-6": 200_000,
-};
-// Local models: use LOCAL_LLM_CONTEXT env or conservative default.
-// Small models (9B) can technically handle 262K but degrade after ~32K.
+// Context window size — driven by env, no hardcoded model names.
+// LOCAL_LLM_CONTEXT for local models, CLOUD_LLM_CONTEXT for cloud providers.
 const LOCAL_CONTEXT = parseInt(process.env.LOCAL_LLM_CONTEXT ?? "32000", 10);
-const DEFAULT_CONTEXT = process.env.LOCAL_LLM_URL ? LOCAL_CONTEXT : 128_000;
+const CLOUD_CONTEXT = parseInt(process.env.CLOUD_LLM_CONTEXT ?? "200000", 10);
+const DEFAULT_CONTEXT = process.env.LOCAL_LLM_URL ? LOCAL_CONTEXT : CLOUD_CONTEXT;
 
 function getContextBudget(): { triggerTokens: number; keepRecentTokens: number } {
   // Local model takes priority — cloud model context sizes are irrelevant.
@@ -47,8 +35,7 @@ function getContextBudget(): { triggerTokens: number; keepRecentTokens: number }
     const keepRecentTokens = Math.floor(LOCAL_CONTEXT * 0.25);
     return { triggerTokens, keepRecentTokens };
   }
-  const { defaultModel } = resolveProviderConfig();
-  const contextSize = MODEL_CONTEXT[defaultModel] ?? DEFAULT_CONTEXT;
+  const contextSize = CLOUD_CONTEXT;
   const triggerTokens = Math.floor(contextSize * 0.5);
   const keepRecentTokens = Math.floor(contextSize * 0.15);
   return { triggerTokens, keepRecentTokens };

@@ -2462,8 +2462,21 @@ export function isToolPreserved(name: string): boolean {
 export async function dispatchTool(
   tools: Tool[],
   call: ToolCall,
+  mode?: Mode,
 ): Promise<{ result: string; raw: string }> {
-  const tool = tools.find((t) => t.def.name === call.name);
+  let tool = tools.find((t) => t.def.name === call.name);
+  // Fallback: if the tool wasn't in the active set but exists globally and
+  // its states allow the current mode, execute it anyway. This prevents
+  // "unknown tool" errors when the agent remembers a tool from a previous
+  // cycle but forgot to re-activate it via more_tools.
+  if (!tool) {
+    const global = ALL_TOOLS.find((t) => t.def.name === call.name);
+    if (global && (!global.states || !mode || global.states.includes(mode))) {
+      tool = global;
+      // Auto-activate for future calls this cycle
+      _activatedTools.add(call.name);
+    }
+  }
   if (!tool) {
     const msg = `(unknown tool: ${call.name})`;
     return { result: msg, raw: msg };

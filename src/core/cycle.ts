@@ -428,7 +428,7 @@ export async function runCycle(options?: {
   ];
 
   let systemPrompt = essentialSections.filter(Boolean).join("\n\n");
-  for (const section of optionalSections.reverse()) {
+  for (const section of [...optionalSections].reverse()) {
     if (!section) continue;
     const candidate = systemPrompt + "\n\n" + section;
     if (candidate.length <= MAX_SYSTEM_PROMPT_CHARS) {

@@ -100,8 +100,15 @@ function textSimilarity(a: string, b: string): number {
   return (2 * overlap) / (sa.size + sb.size);
 }
 
+const USER_PROMPT_DIR = join(DATA, "prompts");
+
 async function loadPrompt(name: string): Promise<string> {
-  return await readFile(join(PROMPT_DIR, name), "utf-8");
+  // User-defined prompts in data/prompts/ override built-in defaults.
+  try {
+    return await readFile(join(USER_PROMPT_DIR, name), "utf-8");
+  } catch {
+    return await readFile(join(PROMPT_DIR, name), "utf-8");
+  }
 }
 
 function modePromptFile(mode: Mode): string {

@@ -24,7 +24,7 @@
 }
 
 import { existsSync } from "fs";
-import { mkdir, readdir, readFile, stat } from "fs/promises";
+import { copyFile, mkdir, readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { createInterface } from "readline/promises";
 import { spawn, type ChildProcess } from "child_process";
@@ -61,7 +61,7 @@ import {
 } from "./llm/auth/storage.js";
 import { resetAuthSource } from "./llm/auth/source.js";
 import { memoryStats } from "./primitives/recall.js";
-import { DATA, JOURNAL_DIR, LINEAGE, WHO_AM_I } from "./primitives/paths.js";
+import { DATA, JOURNAL_DIR, LINEAGE, SRC, WHO_AM_I } from "./primitives/paths.js";
 import { createLiveObserver, printCycleSummary } from "./ui/observer.js";
 
 type RuntimeLlmProvider = "anthropic" | "openai";
@@ -137,6 +137,20 @@ async function init(args: string[]): Promise<void> {
   await mkdir(DATA, { recursive: true });
   await birth(seedName);
 
+  // Copy default prompts to data/prompts/ so the user can customize them.
+  const defaultPromptDir = join(SRC, "llm", "prompts");
+  const userPromptDir = join(DATA, "prompts");
+  await mkdir(userPromptDir, { recursive: true });
+  for (const name of ["base.md", "wake.md", "reflect.md", "sleep.md"]) {
+    const src = join(defaultPromptDir, name);
+    const dst = join(userPromptDir, name);
+    if (!existsSync(dst)) {
+      try {
+        await copyFile(src, dst);
+      } catch { /* ok — default will be used */ }
+    }
+  }
+
   const state = await loadState();
   state.seedName = seedName;
   state.language = language;
@@ -146,6 +160,7 @@ async function init(args: string[]): Promise<void> {
   await saveState(state);
 
   console.log(`born. seed name: ${seedName}`);
+  console.log(`data/prompts/ created — edit these to customize the agent's mission.`);
   console.log(`data/ initialized. run \`pnpm cycle\` to wake for the first time.`);
 }
 

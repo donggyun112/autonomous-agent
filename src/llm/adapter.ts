@@ -31,10 +31,8 @@ export interface LlmAdapter {
 export function resolveProviderFromModel(model: string): LlmProvider | null {
   if (model.startsWith("claude-")) return "anthropic";
   if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
-  if (model.startsWith("ollama/")) return "ollama";
-  if (model.startsWith("local/")) {
-    return (process.env.LOCAL_LLM_PROVIDER ?? "ollama") as LlmProvider;
-  }
+  // Everything else that hits a local server
+  if (process.env.LOCAL_LLM_URL) return "local";
   return null;
 }
 
@@ -130,11 +128,12 @@ export function createDefaultRegistry(): AdapterRegistry {
   });
 
   // Local model servers (MLX, llama.cpp, vLLM, etc.)
-  // Activated by: AGENT_LLM=local (or ollama) + LOCAL_LLM_URL
+  // Any server exposing OpenAI-compatible /v1/chat/completions endpoint.
+  // Activated by: AGENT_LLM=local + LOCAL_LLM_URL
   const localUrl = process.env.LOCAL_LLM_URL;
   if (localUrl) {
     const localModel = process.env.LOCAL_LLM_MODEL ?? "default";
-    registry.register("ollama", async () => {
+    registry.register("local", async () => {
       const { LocalAdapter } = await import("./adapters/local.js");
       return new LocalAdapter({
         id: "local",

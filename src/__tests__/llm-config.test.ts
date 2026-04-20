@@ -39,8 +39,17 @@ describe("resolveProviderConfig", () => {
       LOCAL_LLM_MODEL: "mlx-community/Qwen3.6-35B-A3B-4bit",
     });
 
-    expect(config.provider).toBe("ollama");
+    expect(config.provider).toBe("local");
     expect(config.defaultModel).toBe("mlx-community/Qwen3.6-35B-A3B-4bit");
+  });
+
+  it("maps ollama to local for backwards compat", () => {
+    const config = resolveProviderConfig({
+      AGENT_LLM: "ollama",
+      LOCAL_LLM_MODEL: "some-model",
+    });
+
+    expect(config.provider).toBe("local");
   });
 
   it("auto-detects local when LOCAL_LLM_URL is set without AGENT_LLM", () => {
@@ -49,7 +58,7 @@ describe("resolveProviderConfig", () => {
       LOCAL_LLM_MODEL: "some-model",
     });
 
-    expect(config.provider).toBe("ollama");
+    expect(config.provider).toBe("local");
     expect(config.defaultModel).toBe("some-model");
   });
 });

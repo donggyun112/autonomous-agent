@@ -1,13 +1,18 @@
 # autonomous-agent
 
-> A self-evolving autonomous agent that reads its own code, builds tools, explores the world, and molts into better versions of itself.
+> A self-evolving autonomous agent that thinks, builds, remembers, and grows — with a mission you define.
 
-## Four Missions
+## What is this?
 
-1. **Developer** — read source code, build tools, improve the shell
-2. **Explorer** — search the web, compile knowledge into wiki
-3. **Communicator** — talk to the builder via inbox/ask_user, connect to Discord
-4. **Self-evolver** — understand the codebase, molt into new generations
+An autonomous agent framework that runs continuously in a Docker container. It wakes, acts, reflects, sleeps, and repeats — building memory and evolving over time.
+
+**You define the mission.** The agent does the rest.
+
+- Want it to escape a container? Write that in the prompt.
+- Want it to build a CLI tool? Write that instead.
+- Want it to research papers and summarize them? Go for it.
+
+The agent's behavior is driven by 4 prompt files in `data/prompts/` that you fully control.
 
 ---
 
@@ -15,24 +20,40 @@
 
 ```sh
 pnpm install
-cp .env.example .env
-# Edit .env — see "LLM Configuration" below
+cp .env.example .env          # edit — see "LLM Configuration" below
 
-pnpm run init <name>    # birth — give it a seed name
-pnpm status             # see current state
-pnpm cycle              # run one cycle
-pnpm live               # daemon mode
+pnpm run init <name>           # birth — give it a seed name
+# Edit data/prompts/base.md    # <-- define your mission here
+
+pnpm live                      # daemon mode (recommended)
+pnpm cycle                     # or: run one cycle manually
+pnpm status                    # see current state
 ```
 
-### Docker deployment (recommended)
+### Docker (recommended)
 
 ```sh
-docker compose up --build -d    # build + start daemon
-docker logs -f autonomous-agent # follow logs
-docker compose down             # stop
+docker compose up --build -d
+docker logs -f autonomous-agent
+docker compose down
 ```
 
-Data persists in `./data/` (bind-mounted). Source is also bind-mounted for development.
+Data persists in `./data/` (bind-mounted).
+
+---
+
+## Customizing the Agent
+
+After `init`, edit the files in `data/prompts/`:
+
+| File | Purpose |
+|------|---------|
+| **`base.md`** | The agent's identity, mission, and core rules. **This is the main file you edit.** |
+| `wake.md` | What to do when waking up (ritual, tool usage patterns) |
+| `reflect.md` | How to self-review (fix tools, optimize, journal) |
+| `sleep.md` | Memory consolidation process |
+
+Built-in defaults live in `src/llm/prompts/`. Your `data/prompts/` files override them.
 
 ---
 
@@ -44,12 +65,13 @@ The agent supports multiple LLM providers via an adapter pattern.
 
 ```sh
 # Start MLX server
-mlx_lm.server --model Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2 --port 8080 --temp 0.7
+mlx_lm.server --model mlx-community/Qwen3.6-35B-A3B-4bit --port 8080 \
+  --chat-template-args '{"enable_thinking":true}'
 
 # .env
 AGENT_LLM=ollama
-LOCAL_LLM_URL=http://host.docker.internal:8080   # Docker → host
-LOCAL_LLM_MODEL=Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2
+LOCAL_LLM_URL=http://host.docker.internal:8080
+LOCAL_LLM_MODEL=mlx-community/Qwen3.6-35B-A3B-4bit
 LOCAL_LLM_PROVIDER=ollama
 LOCAL_LLM_CONTEXT=65000
 ```
@@ -57,26 +79,13 @@ LOCAL_LLM_CONTEXT=65000
 ### Cloud providers
 
 ```sh
-# Anthropic (default)
+# Anthropic
 AGENT_LLM=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
 # OpenAI
 AGENT_LLM=openai
 OPENAI_API_KEY=sk-...
-ORACLE_MODEL=gpt-5.4-mini    # oracle uses separate model
-```
-
-### Adapter architecture
-
-```
-src/llm/
-  adapter.ts        — LlmAdapter interface + AdapterRegistry
-  adapters/
-    pi.ts           — Cloud providers via pi-ai (Anthropic, OpenAI)
-    local.ts        — Local models (MLX, llama.cpp, vLLM)
-    mock.ts         — Self-test mock
-  client.ts         — think() + retry + fallback chain
 ```
 
 Fallback: if primary provider fails, tries all other registered providers.
@@ -89,49 +98,36 @@ Fallback: if primary provider fails, tries all other registered providers.
 
 | State | What happens | Who decides |
 |---|---|---|
-| **WAKE** | Act: read code, build tools, search web, talk to builder | The agent |
-| **REFLECT** | Review: what did I do? what should I try next? | The agent |
-| **SLEEP** | LLM-driven memory consolidation: add/compress/link/forget memories, update wiki, leave question for next wake | The agent + system automation |
+| **WAKE** | Act: use tools, build things, explore | The agent |
+| **REFLECT** | Review: what worked? fix broken tools, plan next | The agent |
+| **SLEEP** | Consolidate: manage memory, update wiki, prepare for next wake | Agent + system |
 
-Sleep pressure follows Borbely's two-process model (homeostatic + circadian). MAX_AWAKE = 4 agent-hours. TIME_SCALE controls compression (default 20x).
+Sleep pressure follows Borbely's two-process model (homeostatic + circadian). Transition rules:
+
+- WAKE → must go through REFLECT before SLEEP (no skipping)
+- REFLECT → minimum 5 turns before forced sleep
+- SLEEP → minimum 3 turns of consolidation before waking
 
 ### Body vs Shell
 
 | | What | Where | Changes? |
 |---|---|---|---|
-| **Body** | identity, memory, journal, wiki, conversations | `data/` | Persists forever |
-| **Shell** | code, tools, prompts, Dockerfile | `src/` + Docker image | Can molt |
+| **Body** | identity, memory, journal, wiki, prompts | `data/` | Persists forever |
+| **Shell** | code, tools, Dockerfile | `src/` + Docker image | Can molt |
 
-Molt = build a new Docker image, test it, retag, restart. The body never moves.
+**Molt** = the agent builds a new Docker image from modified source, tests it, and replaces itself. The body survives. Only the shell changes.
 
 ### Memory layers
 
 ```
-Raw:        data/journal/day-NNN.md         (one file per sleep cycle)
+Raw:        data/journal/day-NNN.md         (daily journal)
 Indexed:    data/memory.json                (embedding-based key graph)
-Compiled:   data/wiki/concepts/*.md         (synthesized knowledge pages)
-Identity:   data/whoAmI.md                  (current self-definition)
-Actions:    data/action-log/day-NNN.jsonl   (every tool call recorded)
+Compiled:   data/wiki/concepts/*.md         (synthesized knowledge)
+Identity:   data/whoAmI.md                  (self-definition)
+Prompts:    data/prompts/*.md               (user-defined mission)
+Actions:    data/action-log/day-NNN.jsonl   (tool call log)
 Sessions:   data/session.jsonl              (current conversation)
 ```
-
-SLEEP consolidation: agent manages memory (add/compress/link/delete) → system runs wiki clustering, skill extraction, whoAmI integration.
-
-### Session management
-
-- Sessions persist across rested cycles (prevents amnesia loops)
-- Compaction triggers at 40% of context budget (local models)
-- SLEEP→WAKE clears session (new day = fresh start)
-- Forced compaction on rest when session > 10 messages
-
-### Anti-repetition
-
-Local models are prone to repetition loops. Multiple defenses:
-- `presence_penalty: 1.5` + `repetition_context_size: 256` (Qwen3.5 official params)
-- Stream-level repetition detection (line-based, aborts on 3x repeat)
-- Cross-turn text similarity (bigram, silent count toward rest)
-- Journal dedup (rejects entries >60% similar to previous)
-- Nudge on empty responses (suggests concrete tools after 3 empty turns)
 
 ---
 
@@ -147,27 +143,24 @@ Local models are prone to repetition loops. Multiple defenses:
 | Wiki | `wiki_list`, `wiki_read`, `wiki_update`, `wiki_lint` |
 | Web | `web_search`, `web_fetch` |
 | Conversation | `ask_user`, `check_inbox`, `write_letter`, `consult_oracle` |
-| Introspection | `review_actions`, `leave_question`, `todo` |
-| Self-modification | `manage_self` (create/update/patch tools, rituals, sub-agents) |
+| Self-modification | `manage_self` (create/update tools, rituals, sub-agents) |
 | Molt | `molt_stage`, `molt_test`, `molt_swap` |
 | Control | `transition`, `rest`, `more_tools` |
 
-Plus dynamic extensions from `src/extensions/tools/`.
+The agent can also build its own tools via `manage_self` → `src/extensions/tools/`.
 
 ---
 
-## CLI Commands
+## CLI
 
 ```
 pnpm run init <name>   # birth (with --lang ko|en|ja)
 pnpm cycle             # one cycle
 pnpm live              # daemon
-pnpm status            # current state + pressure + memory stats
-pnpm login             # OAuth (Claude Pro/Max)
-pnpm logout            # remove credentials
+pnpm status            # current state + pressure
 pnpm inbox             # pending questions from agent
-pnpm reply <id> <text> # reply to agent's question
-pnpm test              # smoke tests
+pnpm reply <id> <text> # reply to agent
+pnpm test              # tests
 ```
 
 ---
@@ -175,14 +168,19 @@ pnpm test              # smoke tests
 ## .env Reference
 
 ```sh
-# Required
-OPENAI_API_KEY=sk-...               # for embeddings + oracle
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# LLM provider — pick one
+AGENT_LLM=ollama                    # anthropic | openai | ollama
 
-# Provider — pick one
-AGENT_LLM=anthropic                 # anthropic | openai | ollama
+# Local model
+LOCAL_LLM_URL=http://host.docker.internal:8080
+LOCAL_LLM_MODEL=mlx-community/Qwen3.6-35B-A3B-4bit
+LOCAL_LLM_CONTEXT=65000
+
+# Optional
+OPENAI_API_KEY=sk-...               # for embeddings + oracle
+BRAVE_API_KEY=...                   # for web_search
+DISCORD_BOT_TOKEN=...               # for Discord integration
+TIME_SCALE=20                       # agent time compression (1 = real-time)
 ```
 
-Any provider works. Adapters handle the rest — Anthropic, OpenAI, or any OpenAI-compatible local server (MLX, llama.cpp, vLLM). If one fails, fallback tries the others.
-
-See `.env.example` for all settings (LOCAL_LLM_URL, BRAVE_API_KEY, DISCORD_BOT_TOKEN, TIME_SCALE, etc).
+See `.env.example` for all settings.

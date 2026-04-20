@@ -11,18 +11,9 @@ describe("resolveProviderFromModel", () => {
     expect(resolveProviderFromModel("o1-preview")).toBe("openai");
     expect(resolveProviderFromModel("o3-mini")).toBe("openai");
   });
-  it("resolves local model when LOCAL_LLM_URL is set", () => {
-    const prev = process.env.LOCAL_LLM_URL;
-    process.env.LOCAL_LLM_URL = "http://localhost:8080";
-    expect(resolveProviderFromModel("some-local-model")).toBe("local");
-    if (prev) process.env.LOCAL_LLM_URL = prev;
-    else delete process.env.LOCAL_LLM_URL;
-  });
-  it("returns null for unknown models without local URL", () => {
-    const prev = process.env.LOCAL_LLM_URL;
-    delete process.env.LOCAL_LLM_URL;
+  it("returns null for unknown models (let default provider handle)", () => {
+    expect(resolveProviderFromModel("some-local-model")).toBeNull();
     expect(resolveProviderFromModel("custom-model")).toBeNull();
-    if (prev) process.env.LOCAL_LLM_URL = prev;
   });
 });
 

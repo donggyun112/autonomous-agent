@@ -124,7 +124,7 @@ export class AnthropicOAuthSource implements AuthSource {
         const fresh = (await loadCredentials()).anthropic;
         if (!fresh) {
           throw new Error(
-            "No Anthropic OAuth credentials on disk. Run 'pnpm login' to authenticate.",
+            "No Anthropic OAuth credentials on disk. Run 'pnpm run login' to authenticate.",
           );
         }
         if (!this.isExpired(fresh)) {
@@ -148,7 +148,7 @@ export class AnthropicOAuthSource implements AuthSource {
     let creds = await this.load();
     if (!creds) {
       throw new Error(
-        "No Anthropic OAuth credentials. Run 'pnpm login' to authenticate.",
+        "No Anthropic OAuth credentials. Run 'pnpm run login' to authenticate.",
       );
     }
     if (this.isExpired(creds)) {

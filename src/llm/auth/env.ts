@@ -16,7 +16,7 @@ export class EnvApiKeySource implements AuthSource {
     const key = process.env[this.envVar];
     if (!key) {
       throw new Error(
-        `${this.envVar} is not set. Either set it in .env, or run 'pnpm login' to authenticate via OAuth.`,
+        `${this.envVar} is not set. Either set it in .env, or run 'pnpm run login' to authenticate via OAuth.`,
       );
     }
     return key;

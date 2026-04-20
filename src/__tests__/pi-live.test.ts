@@ -7,8 +7,8 @@ config();
 
 const hasOpenAI = !!process.env.OPENAI_API_KEY;
 
-describe.skipIf(!hasOpenAI)("pi-ai live integration", () => {
-  it("makes a real OpenAI call through PiAdapter", async () => {
+describe.skipIf(!hasOpenAI)("OpenAI live integration", () => {
+  it("makes a real OpenAI call through SdkAdapter", async () => {
     const { createDefaultRegistry } = await import("../llm/adapter.js");
     const registry = createDefaultRegistry();
     const adapter = await registry.get("openai");

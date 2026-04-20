@@ -1,28 +1,16 @@
 // LLM Adapter interface and registry.
 //
-// Every provider (Anthropic, OpenAI, Ollama, …) implements LlmAdapter.
-// The AdapterRegistry lazily instantiates adapters on first use so that
-// heavy SDK imports (e.g. openai) only happen when actually needed.
+// Three providers: anthropic, openai, local.
+// Each provider uses a transport (anthropic-messages or openai-chat)
+// wrapped in a unified SdkAdapter.
 
 import type { LlmProvider, ThinkOnceArgs, ThinkResult } from "./types.js";
 
 // ── Adapter interface ──────────────────────────────────────────────────
 
 export interface LlmAdapter {
-  /** Short identifier for logging and error messages. */
   readonly id: string;
-
-  /**
-   * Execute a single LLM call. No retries — the caller (think()) handles that.
-   * Throws on any error (auth, network, rate limit, etc).
-   */
   thinkOnce(args: ThinkOnceArgs): Promise<ThinkResult>;
-
-  /**
-   * Attempt to rotate credentials after an auth failure.
-   * Returns true if a fresh credential is now available.
-   * Adapters without rotation support return false.
-   */
   rotateCredential(): Promise<boolean>;
 }
 
@@ -31,8 +19,7 @@ export interface LlmAdapter {
 export function resolveProviderFromModel(model: string): LlmProvider | null {
   if (model.startsWith("claude-")) return "anthropic";
   if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
-  // Everything else that hits a local server
-  if (process.env.LOCAL_LLM_URL) return "local";
+  // Don't auto-route unknown models to local — let the configured default provider handle them.
   return null;
 }
 
@@ -42,12 +29,10 @@ export class AdapterRegistry {
   private instances = new Map<string, LlmAdapter>();
   private factories = new Map<string, () => Promise<LlmAdapter>>();
 
-  /** Register a lazy factory for a provider. */
   register(provider: LlmProvider | "mock", factory: () => Promise<LlmAdapter>): void {
     this.factories.set(provider, factory);
   }
 
-  /** Get an adapter instance, creating it on first access. */
   async get(provider: LlmProvider | "mock"): Promise<LlmAdapter> {
     const existing = this.instances.get(provider);
     if (existing) return existing;
@@ -65,24 +50,25 @@ export class AdapterRegistry {
     return adapter;
   }
 
-  /** All registered provider keys (excluding "mock"). */
   get providers(): LlmProvider[] {
     return [...this.factories.keys()].filter((k) => k !== "mock") as LlmProvider[];
   }
 }
 
-// ── Default registry with built-in adapters ────────────────────────────
+// ── Default registry ──────────────────────────────────────────────────
 
 export function createDefaultRegistry(): AdapterRegistry {
   const registry = new AdapterRegistry();
 
+  // ── Anthropic (anthropic-messages transport) ─────────────────────
   registry.register("anthropic", async () => {
-    const { PiAdapter } = await import("./adapters/pi.js");
+    const { AnthropicTransport } = await import("./transports/anthropic.js");
+    const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
     const { getAuthSource } = await import("./auth/source.js");
     const source = await getAuthSource();
-    return new PiAdapter({
+    return new SdkAdapter({
       id: "anthropic",
-      piProvider: "anthropic",
+      transport: new AnthropicTransport(),
       getApiKey: () => source.getApiKey(),
       rotateCredentialFn: async () => {
         if ("rotateCredential" in source && typeof (source as Record<string, unknown>).rotateCredential === "function") {
@@ -90,19 +76,20 @@ export function createDefaultRegistry(): AdapterRegistry {
         }
         return false;
       },
-      cacheRetention: "long",
     });
   });
 
+  // ── OpenAI (openai-chat transport) ──────────────────────────────
   registry.register("openai", async () => {
-    const { PiAdapter } = await import("./adapters/pi.js");
-    return new PiAdapter({
+    const { OpenAIChatTransport } = await import("./transports/openai-chat.js");
+    const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
+    return new SdkAdapter({
       id: "openai",
-      piProvider: "openai",
+      transport: new OpenAIChatTransport(),
       getApiKey: async () => {
+        // Try OAuth credentials first (pi-ai token exchange)
         try {
-          // @ts-ignore — pi-ai oauth module for token exchange
-          const { getOAuthApiKey } = await import("@mariozechner/pi-ai/oauth");
+          const { getOAuthApiKey } = await import("@mariozechner/pi-ai/oauth") as { getOAuthApiKey: Function };
           const { loadCredentials } = await import("./auth/storage.js");
           const creds = await loadCredentials();
           if (creds.openai) {
@@ -121,28 +108,40 @@ export function createDefaultRegistry(): AdapterRegistry {
           }
         } catch { /* fallback to env key */ }
         const key = process.env.OPENAI_API_KEY;
-        if (!key) throw new Error("No OpenAI auth available. Set OPENAI_API_KEY in .env.");
+        if (!key) throw new Error("No OpenAI auth. Set OPENAI_API_KEY in .env.");
         return key;
       },
+      baseUrl: "https://api.openai.com",
     });
   });
 
-  // Local model servers (MLX, llama.cpp, vLLM, etc.)
-  // Any server exposing OpenAI-compatible /v1/chat/completions endpoint.
-  // Activated by: AGENT_LLM=local + LOCAL_LLM_URL
+  // ── Local (openai-chat transport + quirks) ─────��────────────────
   const localUrl = process.env.LOCAL_LLM_URL;
   if (localUrl) {
-    const localModel = process.env.LOCAL_LLM_MODEL ?? "default";
     registry.register("local", async () => {
-      const { LocalAdapter } = await import("./adapters/local.js");
-      return new LocalAdapter({
+      const { OpenAIChatTransport } = await import("./transports/openai-chat.js");
+      const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
+      // Register model-specific quirks
+      await import("./quirks/gemma4.js");
+      await import("./quirks/qwen3.js");
+      return new SdkAdapter({
         id: "local",
+        transport: new OpenAIChatTransport(),
+        getApiKey: async () => process.env.LOCAL_LLM_API_KEY ?? "",
         baseUrl: localUrl,
-        defaultModel: localModel,
+        defaultSampling: {
+          topK: Number(process.env.LLM_TOP_K) || 64,
+          topP: Number(process.env.LLM_TOP_P) || 0.95,
+          temperature: process.env.LLM_TEMPERATURE ? Number(process.env.LLM_TEMPERATURE) : undefined,
+          repetitionPenalty: Number(process.env.LLM_REPETITION_PENALTY) || 1.0,
+          minP: process.env.LLM_MIN_P ? Number(process.env.LLM_MIN_P) : undefined,
+          presencePenalty: process.env.LLM_PRESENCE_PENALTY ? Number(process.env.LLM_PRESENCE_PENALTY) : undefined,
+        },
       });
     });
   }
 
+  // ── Mock (for testing) ──────────────────────────────────────────
   registry.register("mock", async () => {
     const { MockAdapter } = await import("./adapters/mock.js");
     return new MockAdapter();

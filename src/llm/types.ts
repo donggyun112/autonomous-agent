@@ -24,6 +24,8 @@ export type ThinkResult = {
   stopReason: string | null;
   inputTokens: number;
   outputTokens: number;
+  /** Raw reasoning/thinking content from the model (if any). */
+  reasoning?: string;
 };
 
 // Streaming events emitted while the LLM produces a response.
@@ -64,4 +66,31 @@ export type ThinkOnceArgs = {
   maxTokens?: number;
   model?: string;
   onEvent?: ThinkEventSink;
+};
+
+// ── Transport & Model metadata ────────────────────────────────────────
+
+/** Wire protocol for LLM API calls. */
+export type Transport = "anthropic-messages" | "openai-chat";
+
+/** Sampling parameters passed to the LLM. */
+export type SamplingParams = {
+  temperature?: number;
+  topK?: number;
+  topP?: number;
+  minP?: number;
+  repetitionPenalty?: number;
+  presencePenalty?: number;
+};
+
+/** Per-model metadata. Used to select transport and apply quirks. */
+export type ModelMeta = {
+  id: string;
+  transport: Transport;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  supportsThinking?: boolean;
+  defaultSampling?: SamplingParams;
+  /** Quirk IDs to apply when parsing tool calls from text. */
+  quirks?: string[];
 };

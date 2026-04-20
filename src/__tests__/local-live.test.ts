@@ -1,23 +1,22 @@
-// Live test for LocalAdapter — requires MLX server running on localhost:8080
+// Live test for OpenAI-chat transport — requires MLX server running on localhost:8080
 import { describe, it, expect } from "vitest";
 
 const hasLocalServer = await fetch("http://localhost:8080/v1/models")
   .then(() => true)
   .catch(() => false);
 
-describe.skipIf(!hasLocalServer)("LocalAdapter live (MLX)", () => {
-  it("makes a real call through LocalAdapter", async () => {
-    const { LocalAdapter } = await import("../llm/adapters/local.js");
-    const adapter = new LocalAdapter({
-      id: "mlx",
-      baseUrl: "http://localhost:8080",
-      defaultModel: "Jiunsong/supergemma4-26b-abliterated-multimodal-mlx-4bit",
-    });
+describe.skipIf(!hasLocalServer)("OpenAI-chat transport live (MLX)", () => {
+  it("makes a real call", async () => {
+    const { OpenAIChatTransport } = await import("../llm/transports/openai-chat.js");
+    const transport = new OpenAIChatTransport();
 
-    const result = await adapter.thinkOnce({
+    const result = await transport.call({
+      model: "mlx-community/Qwen3.6-35B-A3B-4bit",
       systemPrompt: "한 단어로만 대답해.",
       messages: [{ role: "user", content: "안녕?" }],
       maxTokens: 16,
+      onEvent: undefined,
+      config: { baseUrl: "http://localhost:8080", apiKey: "" },
     });
 
     console.log("  response:", result.text);
@@ -26,19 +25,17 @@ describe.skipIf(!hasLocalServer)("LocalAdapter live (MLX)", () => {
   }, 30000);
 
   it("streams events", async () => {
-    const { LocalAdapter } = await import("../llm/adapters/local.js");
-    const adapter = new LocalAdapter({
-      id: "mlx",
-      baseUrl: "http://localhost:8080",
-      defaultModel: "Jiunsong/supergemma4-26b-abliterated-multimodal-mlx-4bit",
-    });
+    const { OpenAIChatTransport } = await import("../llm/transports/openai-chat.js");
+    const transport = new OpenAIChatTransport();
     const events: string[] = [];
 
-    const result = await adapter.thinkOnce({
+    const result = await transport.call({
+      model: "mlx-community/Qwen3.6-35B-A3B-4bit",
       systemPrompt: "한 단어로만 대답해.",
       messages: [{ role: "user", content: "뭐해?" }],
       maxTokens: 16,
       onEvent: (ev) => events.push(ev.type),
+      config: { baseUrl: "http://localhost:8080", apiKey: "" },
     });
 
     console.log("  events:", events);
@@ -47,32 +44,25 @@ describe.skipIf(!hasLocalServer)("LocalAdapter live (MLX)", () => {
     expect(events).toContain("message_end");
   }, 30000);
 
-  it("works through think() with fallback chain", async () => {
-    // Temporarily set env for local provider
-    const prev = { ...process.env };
-    process.env.LOCAL_LLM_URL = "http://localhost:8080";
-    process.env.LOCAL_LLM_MODEL = "Jiunsong/supergemma4-26b-abliterated-multimodal-mlx-4bit";
-    process.env.LOCAL_LLM_PROVIDER = "ollama";
+  it("works through SdkAdapter", async () => {
+    const { OpenAIChatTransport } = await import("../llm/transports/openai-chat.js");
+    const { SdkAdapter } = await import("../llm/adapters/sdk-adapter.js");
 
-    try {
-      // Direct import to get fresh module with env
-      const { LocalAdapter } = await import("../llm/adapters/local.js");
-      const adapter = new LocalAdapter({
-        id: "mlx",
-        baseUrl: "http://localhost:8080",
-        defaultModel: "Jiunsong/supergemma4-26b-abliterated-multimodal-mlx-4bit",
-      });
+    const adapter = new SdkAdapter({
+      id: "local-test",
+      transport: new OpenAIChatTransport(),
+      getApiKey: async () => "",
+      baseUrl: "http://localhost:8080",
+    });
 
-      const result = await adapter.thinkOnce({
-        systemPrompt: "답을 숫자로만.",
-        messages: [{ role: "user", content: "1+1은?" }],
-        maxTokens: 8,
-      });
+    const result = await adapter.thinkOnce({
+      systemPrompt: "답을 숫자로만.",
+      messages: [{ role: "user", content: "1+1은?" }],
+      maxTokens: 8,
+      model: "mlx-community/Qwen3.6-35B-A3B-4bit",
+    });
 
-      console.log("  think() response:", result.text);
-      expect(result.text.length).toBeGreaterThan(0);
-    } finally {
-      Object.assign(process.env, prev);
-    }
+    console.log("  response:", result.text);
+    expect(result.text.length).toBeGreaterThan(0);
   }, 30000);
 });

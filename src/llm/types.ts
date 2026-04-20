@@ -4,7 +4,7 @@
 // Keeping types in one place prevents circular dependencies between
 // adapter implementations and the client module.
 
-export type LlmProvider = "anthropic" | "openai" | "ollama" | "vllm" | "llamacpp";
+export type LlmProvider = "anthropic" | "openai" | "local";
 
 export type ToolDefinition = {
   name: string;

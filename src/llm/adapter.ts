@@ -130,17 +130,14 @@ export function createDefaultRegistry(): AdapterRegistry {
   });
 
   // Local model servers (MLX, llama.cpp, vLLM, etc.)
-  // Activated by env: LOCAL_LLM_URL=http://localhost:8080
+  // Activated by: AGENT_LLM=local (or ollama) + LOCAL_LLM_URL
   const localUrl = process.env.LOCAL_LLM_URL;
   if (localUrl) {
     const localModel = process.env.LOCAL_LLM_MODEL ?? "default";
-
-    // Register as the provider matching LlmProvider type (default: "ollama")
-    const localProvider = (process.env.LOCAL_LLM_PROVIDER ?? "ollama") as LlmProvider;
-    registry.register(localProvider, async () => {
+    registry.register("ollama", async () => {
       const { LocalAdapter } = await import("./adapters/local.js");
       return new LocalAdapter({
-        id: localProvider,
+        id: "local",
         baseUrl: localUrl,
         defaultModel: localModel,
       });

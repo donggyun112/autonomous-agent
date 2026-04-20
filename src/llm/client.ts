@@ -41,8 +41,14 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return undefined;
 }
 
-function normalizeProvider(rawProvider: string | undefined): LlmProvider {
-  return rawProvider?.toLowerCase() === "openai" ? "openai" : "anthropic";
+function normalizeProvider(rawProvider: string | undefined, env: NodeJS.ProcessEnv = process.env): LlmProvider {
+  const p = rawProvider?.toLowerCase();
+  if (p === "openai") return "openai";
+  if (p === "local" || p === "ollama") return "ollama";
+  if (p === "anthropic") return "anthropic";
+  // Default: if LOCAL_LLM_URL is set, use local; otherwise anthropic
+  if (env.LOCAL_LLM_URL) return "ollama";
+  return "anthropic";
 }
 
 export function resolveProviderConfig(
@@ -52,7 +58,16 @@ export function resolveProviderConfig(
   defaultModel: string;
   auxiliaryModel: string;
 } {
-  const provider = normalizeProvider(env.AGENT_LLM);
+  const provider = normalizeProvider(env.AGENT_LLM, env);
+
+  if (provider === "ollama") {
+    const model = firstNonEmpty(env.AGENT_MODEL, env.LOCAL_LLM_MODEL) ?? "default";
+    return {
+      provider,
+      defaultModel: model,
+      auxiliaryModel: model, // local models typically use same model
+    };
+  }
 
   if (provider === "openai") {
     return {

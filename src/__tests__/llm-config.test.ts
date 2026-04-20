@@ -32,4 +32,24 @@ describe("resolveProviderConfig", () => {
     expect(config.defaultModel).toBe("claude-opus-4-6");
     expect(config.auxiliaryModel).toBe("claude-sonnet-4-20250514");
   });
+
+  it("uses local when AGENT_LLM=local", () => {
+    const config = resolveProviderConfig({
+      AGENT_LLM: "local",
+      LOCAL_LLM_MODEL: "mlx-community/Qwen3.6-35B-A3B-4bit",
+    });
+
+    expect(config.provider).toBe("ollama");
+    expect(config.defaultModel).toBe("mlx-community/Qwen3.6-35B-A3B-4bit");
+  });
+
+  it("auto-detects local when LOCAL_LLM_URL is set without AGENT_LLM", () => {
+    const config = resolveProviderConfig({
+      LOCAL_LLM_URL: "http://localhost:8080",
+      LOCAL_LLM_MODEL: "some-model",
+    });
+
+    expect(config.provider).toBe("ollama");
+    expect(config.defaultModel).toBe("some-model");
+  });
 });

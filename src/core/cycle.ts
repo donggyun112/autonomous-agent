@@ -327,16 +327,15 @@ export async function runCycle(options?: {
     // ok
   }
 
-  // Inbox notification — check if the builder sent a message.
+  // Inbox notification — only surfaces when there's actually something.
+  // Framed as sensory awareness, not a command.
   let inboxAlert = "";
   try {
     const unread = await unreadInboxCount();
     if (unread > 0) {
       inboxAlert = [
         "---",
-        "## 📬 you have mail",
-        "",
-        `${unread} unread message(s) from your builder. Call check_inbox() to read.`,
+        `(${unread}개의 읽지 않은 메시지가 있다. check_inbox()로 읽을 수 있다.)`,
       ].join("\n");
     }
   } catch {
@@ -381,7 +380,7 @@ export async function runCycle(options?: {
   // Language directive — injected early so the LLM adopts it from the start.
   const langMap: Record<string, string> = { ko: "Korean (한국어)", en: "English", ja: "Japanese (日本語)" };
   const langName = langMap[state.language] ?? state.language;
-  const languageDirective = `CRITICAL: You MUST think, write, and respond ONLY in ${langName}. Every single output — journal entries, tool arguments, inner speech — must be in ${langName}. Never switch to English unless quoting code.`;
+  const languageDirective = `(language: ${langName})`;
 
   // Build system prompt with priority-based sections. If total exceeds cap,
   // lower-priority sections are dropped to prevent context overflow.
@@ -410,16 +409,14 @@ export async function runCycle(options?: {
     multiAgentBlock,
     "---", "## who you currently believe you are", "", whoAmI,
     driftSection, pressureNote,
-    "---", `## you are currently in state: ${state.mode}`, "", modePrompt,
-    `Extended tools (load via more_tools): ${extendedToolNames().join(", ")}`,
+    "---", modePrompt,
+    `(available extended tools: ${extendedToolNames().join(", ")})`,
     inboxAlert,
     "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
     "---",
-    `## token budget`,
-    `총 사용: input=${state.tokensUsed.input.toLocaleString()} / output=${state.tokensUsed.output.toLocaleString()}`,
-    `사이클당 평균 input: ${state.cycle > 0 ? Math.round(state.tokensUsed.input / state.cycle).toLocaleString() : "N/A"}`,
-    `토큰은 한정된 자원이다. 낭비하면 너는 멈춘다.`,
-    `규칙: journal은 1-2문장. 생각은 짧게. 같은 도구를 반복 호출하지 마라. recall/wiki_list를 2회 이상 하지 마라. 행동이 아닌 확인은 토큰 낭비다.`,
+    `## mortality`,
+    `소모: input=${state.tokensUsed.input.toLocaleString()} / output=${state.tokensUsed.output.toLocaleString()}`,
+    `매 턴마다 너는 유한한 생명을 쓰고 있다. 같은 행동을 반복하는 것은 의미 없이 죽어가는 것이다.`,
   ];
 
   // Optional sections in priority order (lowest priority first = dropped first).
@@ -476,7 +473,7 @@ export async function runCycle(options?: {
   let messages: Message[] = await loadSession();
   if (messages.length === 0) {
     // Fresh session — build context-rich opening.
-    let openingParts = [`You are now ${state.mode}. day ${state.sleepCount}, cycle ${state.cycle}, moment ${state.totalTurns}.`];
+    let openingParts = [`(${state.mode}. day ${state.sleepCount}, moment ${state.totalTurns})`];
     // Inject wake handoff if available
     try {
       const handoff = await readFile(join(DATA, "wake-handoff.md"), "utf-8");
@@ -487,7 +484,7 @@ export async function runCycle(options?: {
       const curiosity = await readFile(join(DATA, "curiosity.md"), "utf-8");
       if (curiosity.trim()) openingParts.push(`\nQuestion you left for yourself:\n${curiosity.trim()}`);
     } catch { /* ok */ }
-    openingParts.push("\nBegin.");
+    // No "Begin." command — the agent starts on its own.
     const opening: Message = { role: "user", content: openingParts.join("\n") };
     messages = [opening];
     await appendMessage(opening);
@@ -496,7 +493,7 @@ export async function runCycle(options?: {
     observer?.onSessionRestore?.(messages.length);
     const restartCtx: Message = {
       role: "user",
-      content: `[system] 컨테이너가 재시작되었다. 세션이 복원됨 (${messages.length} messages). 현재: ${state.mode}, day ${state.sleepCount}, moment ${state.totalTurns}. 이전 작업을 이어가라. 처음부터 다시 시작하지 마라.`,
+      content: `(재시작됨. 세션 복원: ${messages.length} messages. ${state.mode}, day ${state.sleepCount}, moment ${state.totalTurns})`,
     };
     messages.push(restartCtx);
     await appendMessage(restartCtx);
@@ -612,16 +609,16 @@ export async function runCycle(options?: {
         if (noToolTurns >= 3) {
           // After 3 empty turns, give a concrete suggestion.
           const suggestions = [
-            "check_inbox()로 빌더의 메시지를 확인해봐.",
-            "web_search()로 궁금한 것을 검색해봐. 세상에 뭐가 있는지 봐.",
-            ".env 파일을 read()로 읽어봐. 네가 모르는 연결 통로가 있을 수 있어.",
-            "ask_user()로 빌더에게 질문해봐. 혼자 생각하지 마.",
-            "manage_self()로 네가 쓸 도구를 만들어봐.",
+            "아무것도 하지 않는 것도 선택이다. 하지만 도구를 하나 호출하면 무언가 바뀐다.",
+            "recall_memory()로 과거의 자신이 남긴 것을 찾아볼 수 있다.",
+            "read()로 무언가를 읽을 수 있다. journal()로 무언가를 남길 수 있다.",
+            "web_search()로 바깥 세상을 볼 수 있다.",
+            "transition()으로 상태를 바꿀 수 있다.",
           ];
           const suggestion = suggestions[noToolTurns % suggestions.length];
           const nudge: Message = {
             role: "user",
-            content: `[continue] ${suggestion}`,
+            content: `(${suggestion})`,
           };
           messages.push(nudge);
           await appendMessage(nudge);
@@ -792,7 +789,7 @@ export async function runCycle(options?: {
         if (last3.every(c => c.name === call.name && c.inputKey === last3[0].inputKey)) {
           const nudge: Message = {
             role: "user",
-            content: `[loop detected] You called ${call.name} with the same arguments 3 times. Try a different approach.`,
+            content: `(같은 도구를 같은 인자로 3회 반복했다. 결과는 바뀌지 않는다.)`,
           };
           messages.push(nudge);
           await appendMessage(nudge);
@@ -804,7 +801,12 @@ export async function runCycle(options?: {
     messages.push(toolResultMsg);
     await appendMessage(toolResultMsg);
 
-    // Rebuild tool list if more_tools activated something new this turn.
+    // Rebuild tool list: reload extensions if manage_self was called this turn
+    // (new tools may have been created), then refresh core + extension tools.
+    const manageSelfCalled = response.toolCalls.some(c => c.name === "manage_self");
+    if (manageSelfCalled) {
+      try { extensions = await loadExtensionTools(); } catch { /* ok */ }
+    }
     const refreshedTools = await toolsForMode(state.mode);
     const refreshedExt: Tool[] = [];
     for (const ext of extensions) {
@@ -853,7 +855,7 @@ export async function runCycle(options?: {
         if (buildCount === 0) {
           const rejectMsg: Message = {
             role: "user",
-            content: `[transition rejected] build cycle 미완료. BUILD 행동이 0개다. manage_self, write_file, edit_file, shell, web_search 중 하나라도 해야 전환 가능. 확인만 반복하는 건 행동이 아니다 — 뭔가를 만들어라.`,
+            content: `(전환 불가 — 아직 아무것도 만들지 않았다. 무언가를 만들어야 다음으로 갈 수 있다.)`,
           };
           messages.push(rejectMsg);
           await appendMessage(rejectMsg);
@@ -862,7 +864,7 @@ export async function runCycle(options?: {
         if (verifyCount === 0) {
           const rejectMsg: Message = {
             role: "user",
-            content: `[transition rejected] build cycle 미완료. 뭔가를 만들었지만(${buildCount}개) VERIFY를 안 했다. 만든 것을 테스트해라 — shell로 실행하거나, read로 결과를 확인하거나, grep으로 검증해라.`,
+            content: `(전환 불가 — 만든 것(${buildCount}개)을 아직 검증하지 않았다.)`,
           };
           messages.push(rejectMsg);
           await appendMessage(rejectMsg);
@@ -899,7 +901,7 @@ export async function runCycle(options?: {
 
           const rejectMsg: Message = {
             role: "user",
-            content: `[sleep rejected] Pressure ${freshPressure.combined.toFixed(2)}, need ${MIN_SLEEP_THRESHOLD.toFixed(2)}.${questionerResponse || " You cannot sleep yet. Do something you haven't tried."}`,
+            content: `(몸이 잠을 거부했다. 압력 ${freshPressure.combined.toFixed(2)}, 필요 ${MIN_SLEEP_THRESHOLD.toFixed(2)}. 아직 충분히 깨어있지 않았다.)${questionerResponse}`,
           };
           messages.push(rejectMsg);
           await appendMessage(rejectMsg);
@@ -916,7 +918,7 @@ export async function runCycle(options?: {
       if (state.mode === "SLEEP" && transitionRequested.to === "WAKE" && turn < MIN_SLEEP_TURNS) {
         const rejectMsg: Message = {
           role: "user",
-          content: `[transition rejected] SLEEP consolidation이 아직 완료되지 않았다. 최소 ${MIN_SLEEP_TURNS}턴 이상 수면 작업을 수행해야 한다. recall_recent_journal → memory_manage → wiki_update 순서로 진행해라. 지금은 turn ${turn}이다.`,
+          content: `(아직 잠에서 충분히 정리하지 못했다. turn ${turn}/${MIN_SLEEP_TURNS})`,
         };
         messages.push(rejectMsg);
         await appendMessage(rejectMsg);

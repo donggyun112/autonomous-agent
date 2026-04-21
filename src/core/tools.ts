@@ -2429,22 +2429,15 @@ export function extendedToolNames(): string[] {
 }
 
 /**
- * Return tools available for a given mode.
- * On-demand loading: only core tools + activated extended tools are returned.
- * The agent uses `more_tools` to discover and activate the rest.
+ * Return ALL tools available for a given mode.
+ * All tools are always loaded — no more_tools activation needed.
+ * Fixed tool set = fixed prefix = prompt cache hit.
  */
 export async function toolsForMode(mode: Mode): Promise<Tool[]> {
-  // Core tools + more_tools meta-tool (always available).
-  const base = [...CORE_TOOLS, moreToolsTool];
-
-  // Add activated extended tools.
-  for (const name of _activatedTools) {
-    const tool = EXTENDED_TOOLS.find((t) => t.def.name === name);
-    if (tool) base.push(tool);
-  }
+  const all = [...CORE_TOOLS, ...EXTENDED_TOOLS];
 
   // Filter by state.
-  const stateFiltered = base.filter(
+  const stateFiltered = all.filter(
     (t) => !t.states || t.states.length === 0 || t.states.includes(mode),
   );
 

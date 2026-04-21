@@ -134,7 +134,7 @@ export function createDefaultRegistry(): AdapterRegistry {
           topP: Number(process.env.LLM_TOP_P) || 0.95,
           temperature: process.env.LLM_TEMPERATURE ? Number(process.env.LLM_TEMPERATURE) : 0.6,
           minP: 0,
-          presencePenalty: process.env.LLM_PRESENCE_PENALTY ? Number(process.env.LLM_PRESENCE_PENALTY) : 0,
+          presencePenalty: process.env.LLM_PRESENCE_PENALTY ? Number(process.env.LLM_PRESENCE_PENALTY) : 1.5,
         },
       });
     });

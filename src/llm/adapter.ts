@@ -130,12 +130,11 @@ export function createDefaultRegistry(): AdapterRegistry {
         getApiKey: async () => process.env.LOCAL_LLM_API_KEY ?? "",
         baseUrl: localUrl,
         defaultSampling: {
-          topK: Number(process.env.LLM_TOP_K) || 64,
+          topK: Number(process.env.LLM_TOP_K) || 20,
           topP: Number(process.env.LLM_TOP_P) || 0.95,
-          temperature: process.env.LLM_TEMPERATURE ? Number(process.env.LLM_TEMPERATURE) : undefined,
-          repetitionPenalty: Number(process.env.LLM_REPETITION_PENALTY) || 1.0,
-          minP: process.env.LLM_MIN_P ? Number(process.env.LLM_MIN_P) : undefined,
-          presencePenalty: process.env.LLM_PRESENCE_PENALTY ? Number(process.env.LLM_PRESENCE_PENALTY) : undefined,
+          temperature: process.env.LLM_TEMPERATURE ? Number(process.env.LLM_TEMPERATURE) : 0.6,
+          minP: 0,
+          presencePenalty: process.env.LLM_PRESENCE_PENALTY ? Number(process.env.LLM_PRESENCE_PENALTY) : 0,
         },
       });
     });

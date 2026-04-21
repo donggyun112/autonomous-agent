@@ -117,7 +117,10 @@ export class OpenAIChatTransport implements LlmTransport {
       if (args.sampling.topK) body.top_k = args.sampling.topK;
       if (args.sampling.topP) body.top_p = args.sampling.topP;
       if (args.sampling.temperature !== undefined) body.temperature = args.sampling.temperature;
-      if (args.sampling.repetitionPenalty) body.repetition_penalty = args.sampling.repetitionPenalty;
+      if (args.sampling.repetitionPenalty && args.sampling.repetitionPenalty > 1.0) {
+        body.repetition_penalty = args.sampling.repetitionPenalty;
+        body.repetition_context_size = 256;
+      }
       if (args.sampling.minP !== undefined) body.min_p = args.sampling.minP;
       if (args.sampling.presencePenalty !== undefined) {
         body.presence_penalty = args.sampling.presencePenalty;

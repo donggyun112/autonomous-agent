@@ -438,6 +438,7 @@ export async function runCycle(options?: {
     "---", modePrompt,
     `(available extended tools: ${extendedToolNames().join(", ")})`,
     // ── Semi-static (changes per sleep cycle) ─────────────────────
+    `(현재 상태: ${state.mode})`,
     "---", "## who you currently believe you are", "", whoAmI,
     // ── Dynamic (changes every turn — placed last for cache efficiency) ──
     driftSection, pressureNote, inboxAlert,

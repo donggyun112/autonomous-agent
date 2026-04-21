@@ -2495,7 +2495,14 @@ export async function dispatchTool(
     return { result: msg, raw: msg };
   }
   try {
-    let raw = await tool.handler(call.input);
+    // Timeout: all tools get a hard 30s cap. Prevents infinite loops in broken extensions.
+    const TOOL_TIMEOUT_MS = 30_000;
+    let raw = await Promise.race([
+      tool.handler(call.input),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error(`tool "${call.name}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`)), TOOL_TIMEOUT_MS)
+      ),
+    ]);
     // Safety: extension tools may return objects instead of strings.
     if (typeof raw !== "string") {
       try { raw = JSON.stringify(raw, null, 2); } catch { raw = String(raw); }

@@ -172,13 +172,22 @@ export class OpenAIChatTransport implements LlmTransport {
     const toolCalls: ToolCall[] = [];
 
     // mlx-lm sends thinking as a separate `reasoning` field
-    const reasoning = typeof msg?.reasoning === "string" ? msg.reasoning : "";
+    let reasoning = typeof msg?.reasoning === "string" ? msg.reasoning : "";
     if (reasoning) {
       args.onEvent?.({ type: "text_delta", delta: `[think] ${reasoning}\n` });
     }
 
-    // Strip inline thinking tags
+    // Extract inline <think> blocks — preserve any tool calls inside them
+    // before stripping. Qwen sometimes puts <function=...> inside <think>.
+    const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
+    if (thinkMatch) {
+      // Append think content to reasoning so quirks can scan it
+      if (!reasoning) reasoning = thinkMatch[1];
+      else reasoning += "\n" + thinkMatch[1];
+    }
     text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    // Also strip <tool_call> wrappers from text (tool calls will be parsed by quirks)
+    text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
 
     // Parse structured tool_calls
     const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;

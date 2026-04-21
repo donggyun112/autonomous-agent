@@ -705,7 +705,7 @@ export async function runCycle(options?: {
       // Special handling: transition + rest are sentinels handled by the runner.
       // These are NOT visible in the observer, so don't count them.
       if (call.name === "transition") {
-        const to = String(call.input.to ?? "") as Mode;
+        const to = String(call.input.to ?? "").trim().toUpperCase() as Mode;
         const reason = String(call.input.reason ?? "(no reason)");
         const sleepMin = Number(call.input.sleep_minutes ?? 0);
         const wakeIntention = typeof call.input.wake_intention === "string"
@@ -745,7 +745,7 @@ export async function runCycle(options?: {
           toolResults.push({
             type: "tool_result",
             tool_use_id: call.id,
-            content: `Invalid transition target: ${to}`,
+            content: `Invalid transition target: "${to}". Must be WAKE, REFLECT, or SLEEP.`,
           });
         }
         continue;

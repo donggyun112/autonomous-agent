@@ -16,7 +16,7 @@ const LOCAL_EMBEDDING_URL =
 const LOCAL_EMBEDDING_MODEL =
   process.env.LOCAL_EMBEDDING_MODEL ?? "nomic-embed-text";
 
-const _DEFAULT_BACKEND = OPENAI_API_KEY ? "openai" : "local";
+const _DEFAULT_BACKEND = OPENAI_API_KEY ? "openai" : "hf";
 export const EMBEDDING_BACKEND =
   process.env.EMBEDDING_BACKEND ?? _DEFAULT_BACKEND;
 
@@ -109,6 +109,38 @@ function fnv1a(str: string): number {
   return hash >>> 0; // unsigned
 }
 
+// ── HuggingFace Transformers (in-process) ──────────────────────────────
+// Runs a small ONNX embedding model directly in Node.js. No server needed.
+
+const HF_MODEL = process.env.LOCAL_EMBEDDING_MODEL ?? "Xenova/all-MiniLM-L6-v2";
+let _hfPipeline: ((text: string, opts?: Record<string, unknown>) => Promise<{ data: Float32Array }>) | null = null;
+let _hfFailed = false;
+
+async function embedHF(text: string): Promise<number[]> {
+  if (_hfFailed) return tfidfFallback(text);
+
+  if (!_hfPipeline) {
+    try {
+      const { pipeline } = await import("@huggingface/transformers");
+      _hfPipeline = (await pipeline("feature-extraction", HF_MODEL, {
+        dtype: "fp32",
+      })) as unknown as typeof _hfPipeline;
+    } catch (err) {
+      _hfFailed = true;
+      console.warn(`[embedding] @huggingface/transformers failed to load: ${(err as Error).message}. Using TF-IDF fallback.`);
+      return tfidfFallback(text);
+    }
+  }
+
+  try {
+    const output = await _hfPipeline!(text, { pooling: "mean", normalize: true });
+    return Array.from(output.data);
+  } catch (err) {
+    console.warn(`[embedding] HF embedding failed: ${(err as Error).message}`);
+    return tfidfFallback(text);
+  }
+}
+
 // ── Local embedding via HTTP endpoint ───────────────────────────────────
 
 let _localEndpointFailed = false;
@@ -173,6 +205,9 @@ async function embedLocal(text: string): Promise<number[]> {
 export async function embedTextAsync(text: string): Promise<number[]> {
   if (EMBEDDING_BACKEND === "tfidf") {
     return tfidfFallback(text);
+  }
+  if (EMBEDDING_BACKEND === "hf") {
+    return embedHF(text);
   }
   if (EMBEDDING_BACKEND === "local") {
     return embedLocal(text);

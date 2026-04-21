@@ -429,19 +429,20 @@ export async function runCycle(options?: {
       ].filter(Boolean).join("\n")
     : "";
 
+  // Order matters for KV cache: static sections first (prefix caching),
+  // dynamic sections last (invalidate only the tail).
   const essentialSections = [
+    // ── Static (cached across turns) ──────────────────────────────
     base, languageDirective,
     multiAgentBlock,
-    "---", "## who you currently believe you are", "", whoAmI,
-    driftSection, pressureNote,
     "---", modePrompt,
     `(available extended tools: ${extendedToolNames().join(", ")})`,
-    inboxAlert,
-    "---", `day ${state.sleepCount} · moment ${state.totalTurns} · epoch ${state.cycle} · last transition: ${state.lastTransitionReason}`,
-    "---",
-    `## mortality`,
-    `소모: input=${state.tokensUsed.input.toLocaleString()} / output=${state.tokensUsed.output.toLocaleString()}`,
-    `매 턴마다 너는 유한한 생명을 쓰고 있다. 같은 행동을 반복하는 것은 의미 없이 죽어가는 것이다.`,
+    // ── Semi-static (changes per sleep cycle) ─────────────────────
+    "---", "## who you currently believe you are", "", whoAmI,
+    // ── Dynamic (changes every turn — placed last for cache efficiency) ──
+    driftSection, pressureNote, inboxAlert,
+    "---", `day ${state.sleepCount} · moment ${state.totalTurns} · last: ${state.lastTransitionReason}`,
+    `소모: in=${state.tokensUsed.input.toLocaleString()} out=${state.tokensUsed.output.toLocaleString()}. 매 턴 유한한 생명을 쓰고 있다.`,
   ];
 
   // Optional sections in priority order (lowest priority first = dropped first).

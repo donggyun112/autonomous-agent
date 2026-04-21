@@ -240,6 +240,36 @@ export class OpenAIChatTransport implements LlmTransport {
         reasoning += delta.reasoning;
         const tag = text.length === 0 && !delta.reasoning.startsWith("[think]") ? "[think] " : "";
         args.onEvent?.({ type: "text_delta", delta: tag + delta.reasoning });
+
+        // Repetition detection in reasoning (same logic as text)
+        if (reasoning.length > 500) {
+          const rLines = reasoning.split("\n").filter(l => l.trim().length > 10);
+          if (rLines.length >= 3) {
+            const last = rLines[rLines.length - 1].trim();
+            let repeats = 0;
+            for (let i = rLines.length - 1; i >= 0; i--) {
+              if (rLines[i].trim() === last) repeats++;
+              else break;
+            }
+            if (repeats >= 3) {
+              const firstIdx = reasoning.indexOf(last);
+              if (firstIdx !== -1) reasoning = reasoning.slice(0, firstIdx + last.length).trimEnd();
+              aborted = true;
+              break;
+            }
+          }
+          // Also detect substring repetition (same phrase repeated without newlines)
+          if (reasoning.length > 1000) {
+            const tail = reasoning.slice(-200);
+            const pattern = tail.slice(-50);
+            if (pattern.length >= 20 && reasoning.slice(0, -50).includes(pattern) &&
+                reasoning.split(pattern).length > 5) {
+              reasoning = reasoning.slice(0, reasoning.indexOf(pattern) + pattern.length);
+              aborted = true;
+              break;
+            }
+          }
+        }
       }
 
       if (typeof delta.content === "string" && delta.content) {

@@ -1,22 +1,49 @@
-.PHONY: up down mlx mlx-stop rebuild init status logs reset doctor live-local mlx-log
+.PHONY: up down ollama ollama-stop mlx mlx-stop rebuild init status logs reset doctor live-local mlx-log ollama-log
 
-# ── Full stack (MLX + Docker) ─────────────────────────────────────────
+# ── Full stack (Ollama + Docker) ──────────────────────────────────────
 
-up: mlx
+up: ollama
 	@sleep 3
 	@docker compose up -d
 	@echo "✓ MLX server + Docker running"
 
-down: mlx-stop
+down: ollama-stop
 	@docker compose down
 	@echo "✓ All stopped"
 
-rebuild: mlx
+rebuild: ollama
 	@sleep 3
 	@docker compose build --no-cache && docker compose up -d
 	@echo "✓ Rebuilt and running"
 
-# ── MLX Server ────────────────────────────────────────────────────────
+# ── Ollama Server ─────────────────────────────────────────────────────
+
+OLLAMA_MODEL ?= qwen3.6:35b-a3b
+
+ollama:
+	@if curl -s http://localhost:11434/v1/models > /dev/null 2>&1; then \
+		echo "Ollama already running"; \
+	else \
+		echo "Starting Ollama..."; \
+		OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 ollama serve > /tmp/ollama.log 2>&1 & \
+		sleep 3; \
+		if curl -s http://localhost:11434/v1/models > /dev/null 2>&1; then \
+			echo "✓ Ollama ready"; \
+		else \
+			echo "⚠ Ollama still starting... check /tmp/ollama.log"; \
+		fi; \
+	fi
+
+ollama-stop:
+	@pkill -f "ollama serve" 2>/dev/null && echo "✓ Ollama stopped" || echo "Ollama not running"
+
+ollama-log:
+	@tail -20 /tmp/ollama.log 2>/dev/null || echo "No Ollama log"
+
+ollama-pull:
+	@ollama pull $(OLLAMA_MODEL)
+
+# ── MLX Server (legacy) ───────────────────────────────────────────────
 
 MLX_MODEL ?= mlx-community/Qwen3.6-35B-A3B-4bit
 MLX_PORT ?= 8080

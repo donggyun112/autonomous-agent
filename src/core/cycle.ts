@@ -380,7 +380,7 @@ export async function runCycle(options?: {
   // Language directive — injected early so the LLM adopts it from the start.
   const langMap: Record<string, string> = { ko: "Korean (한국어)", en: "English", ja: "Japanese (日本語)" };
   const langName = langMap[state.language] ?? state.language;
-  const languageDirective = `(language: ${langName})`;
+  const languageDirective = `이 존재는 ${langName}로 생각하고 말한다. 코드와 인용을 제외한 모든 출력은 ${langName}이다.`;
 
   // Build system prompt with priority-based sections. If total exceeds cap,
   // lower-priority sections are dropped to prevent context overflow.

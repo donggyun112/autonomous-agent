@@ -1104,8 +1104,11 @@ const writeLetterTool: Tool = {
     },
   },
   handler: async (input) => {
+    // Accept both "text" and "letter" as parameter names
+    const text = String(input.text ?? input.letter ?? "");
+    if (!text) return "(tool error: write_letter: text is required)";
     const result = await writeLetter({
-      text: String(input.text ?? ""),
+      text,
       title: typeof input.title === "string" ? input.title : undefined,
     });
     return JSON.stringify(result, null, 2);
@@ -1372,7 +1375,7 @@ const manageSelfTool: Tool = {
     }
     const scope = input.scope as ManageSelfAction extends { scope: infer S } ? S : never;
     if (!scope || typeof scope !== "string") {
-      return "[error] scope is required for this kind.";
+      return `[error] scope is required. Example: manage_self({ kind: "${kind}", scope: "tool", name: "my_tool", content: "...", reason: "..." }). Scopes: subagent, tool, ritual, state-prompt`;
     }
     const name = String(input.name ?? "");
     if (kind === "list") {
@@ -1401,7 +1404,7 @@ const manageSelfTool: Tool = {
       if (!name) return "[error] name required.";
       const content = String(input.content ?? "");
       const reason = String(input.reason ?? "(no reason given)");
-      if (!content) return "[error] content required.";
+      if (!content) return `[error] content required. Example: manage_self({ kind: "${kind}", scope: "${scope}", name: "${name}", content: "export const tool = { def: { name: '...', ... }, handler: async (input) => { ... } }", reason: "..." })`;
       return manageSelf({
         kind: kind as "create" | "update",
         scope: scope as never,
@@ -2399,7 +2402,7 @@ const moreToolsTool: Tool = {
 const AUTO_ACTIVATE_BY_MODE: Partial<Record<string, string[]>> = {
   WAKE: ["memory", "wiki", "file"],  // WAKE needs recall + wiki reference + file ops
   SLEEP: ["memory", "wiki"],         // SLEEP needs memory consolidation + wiki update
-  REFLECT: ["memory", "wiki"],       // REFLECT needs memory recall + wiki
+  REFLECT: ["memory", "wiki", "inspect", "build"],  // REFLECT: recall + review failures + fix tools
 };
 
 // Reset activated tools at cycle start (called from cycle.ts).

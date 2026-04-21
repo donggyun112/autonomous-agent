@@ -352,6 +352,31 @@ export async function runCycle(options?: {
 
   // Daily log — yesterday + today journal injected so the agent knows what
   // it was thinking recently without needing to call a tool. Char-limited.
+  // Failure summary — injected during REFLECT so the agent can see what broke.
+  let failureBlock = "";
+  if (state.mode === "REFLECT") {
+    try {
+      const { readRecentActions } = await import("./action-log.js");
+      const actions = await readRecentActions(1);
+      const failures = actions.filter(a =>
+        a.output_summary.includes("[error]") ||
+        a.output_summary.includes("unknown tool") ||
+        a.output_summary.includes("timed out")
+      );
+      if (failures.length > 0) {
+        const lines = failures.slice(-10).map(f =>
+          `- ${f.tool}(${f.input_summary.slice(0, 40)}…): ${f.output_summary.slice(0, 80)}`
+        );
+        failureBlock = [
+          "---",
+          `## 오늘 실패한 도구 호출 (${failures.length}건)`,
+          "",
+          ...lines,
+        ].join("\n");
+      }
+    } catch { /* ok */ }
+  }
+
   // "yesterday" = day-(sleepCount-1), "today" = day-(sleepCount).
   const MAX_DAILY_LOG_CHARS = 4000;
   let dailyLogBlock = "";
@@ -427,7 +452,8 @@ export async function runCycle(options?: {
     extensionsBlock,
     wakeIntentionBlock,
     dailyLogBlock,
-    wakeHandoffBlock,  // highest priority — yesterday's briefing
+    failureBlock,       // REFLECT-only: what tools failed today
+    wakeHandoffBlock,   // highest priority — yesterday's briefing
   ];
 
   let systemPrompt = essentialSections.filter(Boolean).join("\n\n");

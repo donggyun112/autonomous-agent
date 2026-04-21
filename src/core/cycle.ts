@@ -805,7 +805,16 @@ export async function runCycle(options?: {
     // (new tools may have been created), then refresh core + extension tools.
     const manageSelfCalled = response.toolCalls.some(c => c.name === "manage_self");
     if (manageSelfCalled) {
-      try { extensions = await loadExtensionTools(); } catch { /* ok */ }
+      try {
+        extensions = await loadExtensionTools();
+      } catch (err) {
+        const errMsg: Message = {
+          role: "user",
+          content: `(도구 로드 실패: ${(err as Error).message})`,
+        };
+        messages.push(errMsg);
+        await appendMessage(errMsg);
+      }
     }
     const refreshedTools = await toolsForMode(state.mode);
     const refreshedExt: Tool[] = [];

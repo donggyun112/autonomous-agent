@@ -31,6 +31,8 @@ mlx:
 			--port $(MLX_PORT) \
 			--chat-template-args '{"enable_thinking":true}' \
 			--prompt-cache-size 4 \
+			--prompt-cache-bytes 4294967296 \
+			--prefill-step-size 4096 \
 			--prompt-concurrency 1 \
 			--decode-concurrency 1 \
 			> /tmp/mlx-server.log 2>&1 & \

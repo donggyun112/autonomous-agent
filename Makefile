@@ -25,7 +25,13 @@ ollama:
 		echo "Ollama already running"; \
 	else \
 		echo "Starting Ollama..."; \
-		OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 ollama serve > /tmp/ollama.log 2>&1 & \
+		OLLAMA_FLASH_ATTENTION=1 \
+		OLLAMA_KV_CACHE_TYPE=q8_0 \
+		OLLAMA_CONTEXT_LENGTH=65536 \
+		OLLAMA_KEEP_ALIVE=-1 \
+		OLLAMA_NUM_PARALLEL=1 \
+		OLLAMA_MAX_LOADED_MODELS=1 \
+		ollama serve > /tmp/ollama.log 2>&1 & \
 		sleep 3; \
 		if curl -s http://localhost:11434/v1/models > /dev/null 2>&1; then \
 			echo "✓ Ollama ready"; \

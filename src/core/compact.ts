@@ -417,24 +417,19 @@ export async function compactIfNeeded(
 
   _previousSummary = summaryText || _previousSummary;
 
-  // Build post-compact messages: summary + recent
+  // Build post-compact messages: summary + recent.
+  // The summary goes into the assistant role so it doesn't break the
+  // system prompt prefix in the KV cache. The user opening message
+  // stays identical to the original cycle opening, preserving the cache.
+  const openingMessage = messages[0]; // preserve original opening for cache
   const synthetic: Message = {
-    role: "user",
-    content: summaryText
-      ? `[earlier in this cycle, you thought:]\n\n${summaryText}`
-      : `[earlier messages summarized — ${older.length} messages compressed]`,
+    role: "assistant",
+    content: [{ type: "text", text: summaryText
+      ? `(이전 대화 요약)\n\n${summaryText}`
+      : `(이전 ${older.length}개 메시지 압축됨)` }],
   };
 
-  let newMessages: Message[] = [synthetic, ...recent];
-
-  // ── Post-compact: re-inject identity context ────────────────────────
-  // After compaction, the agent loses context about who it is. Re-inject
-  // a brief identity reminder so continuity isn't broken.
-  const identityReminder: Message = {
-    role: "user",
-    content: `[system] 컨텍스트가 압축되었다. 현재 상태를 확인하려면 recall_self()와 check_inbox()를 사용해라.`,
-  };
-  newMessages = [synthetic, identityReminder, ...recent];
+  let newMessages: Message[] = [openingMessage, synthetic, ...recent];
 
   // ── Stage 3: PTL fallback ───────────────────────────────────────────
   // If still too large after summarization, force-truncate oldest.

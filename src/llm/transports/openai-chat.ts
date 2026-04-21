@@ -124,7 +124,7 @@ export class OpenAIChatTransport implements LlmTransport {
       if (args.sampling.minP !== undefined) body.min_p = args.sampling.minP;
       if (args.sampling.presencePenalty !== undefined) {
         body.presence_penalty = args.sampling.presencePenalty;
-        body.presence_context_size = 256;
+        body.presence_context_size = 64;
       }
     }
 

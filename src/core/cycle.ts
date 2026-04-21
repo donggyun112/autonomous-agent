@@ -198,7 +198,7 @@ export async function runCycle(options?: {
   // Phase 3: Force transition to WAKE — SLEEP never persists across cycles.
   const enteringSleep = state.mode === "SLEEP";
   if (enteringSleep) {
-    await clearSession();
+    // Session already cleared by the transition handler.
     observer?.onSleepStart?.();
     // Falls through to the main cycle loop below with mode="SLEEP".
     // sleep.md prompt guides the agent to manage memory.
@@ -975,10 +975,13 @@ export async function runCycle(options?: {
       // (wiki clustering, skill extraction, wake handoff) after the agent's
       // LLM-driven memory management is complete.
       const wasInSleep = state.mode === "SLEEP";
+      const fromMode = state.mode;
       state = await transition(state, transitionRequested.to, transitionRequested.reason, {
         wakeAfterMs: transitionRequested.wakeAfterMs,
       });
-      if (wasInSleep && transitionRequested.to === "WAKE") {
+
+      // SLEEP→WAKE: run consolidation first, then clear
+      if (fromMode === "SLEEP" && transitionRequested.to === "WAKE") {
         try {
           const sleepReport = await runSleepConsolidation();
           cycleSleepReport = sleepReport;
@@ -986,13 +989,14 @@ export async function runCycle(options?: {
         } catch (err) {
           observer?.onToolEnd?.("(sleep-auto)", (err as Error).message);
         }
-        // Reload state — runSleepConsolidation calls resetAfterSleep
-        // which increments sleepCount and saves to disk.
         state = await loadState();
-        // Clear session on WAKE — sleep erases the conversation.
-        // Memory, journal, wiki, and whoAmI are the only bridges.
-        await clearSession();
       }
+
+      // Every mode transition clears the session.
+      // Each mode has its own purpose — carrying old context across modes
+      // wastes tokens and breaks KV cache.
+      await clearSession();
+
       result = "transitioned";
       break;
     }

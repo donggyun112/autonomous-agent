@@ -948,7 +948,9 @@ export async function runCycle(options?: {
         // Reload state — runSleepConsolidation calls resetAfterSleep
         // which increments sleepCount and saves to disk.
         state = await loadState();
-        // Session persists across sleep — compaction handles overflow.
+        // Clear session on WAKE — sleep erases the conversation.
+        // Memory, journal, wiki, and whoAmI are the only bridges.
+        await clearSession();
       }
       result = "transitioned";
       break;

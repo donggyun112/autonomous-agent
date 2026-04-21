@@ -18,11 +18,13 @@ import {
   mkdir,
   readFile,
   readdir,
+  rm,
   stat,
   writeFile,
   appendFile,
 } from "fs/promises";
 import { dirname, join, relative, resolve } from "path";
+import { pathToFileURL } from "url";
 import { DATA, ROOT, SRC } from "../primitives/paths.js";
 import { scanExtensionCode } from "./security.js";
 
@@ -181,6 +183,25 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
     await mkdir(dirname(target), { recursive: true });
     const backupPath = await backup(target);
     await writeFile(target, patched, "utf-8");
+
+    // For tool scope: verify the patched file loads.
+    if (action.scope === "tool") {
+      const verifyResult = await verifyToolImport(target);
+      if (verifyResult.error) {
+        // Revert
+        if (backupPath) {
+          await copyFile(backupPath, target);
+        } else {
+          await writeFile(target, content, "utf-8"); // restore original
+        }
+        return [
+          `[error] patched tool failed to load — reverted.`,
+          `import error: ${verifyResult.error}`,
+          `fix the patch and try again.`,
+        ].join("\n");
+      }
+    }
+
     await recordChange({
       action: "patch",
       scope: action.scope,
@@ -191,6 +212,7 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
     return [
       `patched: ${relative(ROOT, target)}`,
       `replaced ${action.find.length} chars → ${action.replace.length} chars`,
+      action.scope === "tool" ? "verified: tool loaded successfully" : "",
       backupPath ? `backup: ${relative(ROOT, backupPath)}` : "",
       `recorded in ${relative(ROOT, CHANGELOG)}`,
     ]
@@ -231,6 +253,26 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
   await mkdir(dirname(target), { recursive: true });
   const backupPath = await backup(target);
   await writeFile(target, action.content, "utf-8");
+
+  // For tool scope: trial import to verify the file loads without errors.
+  // If it fails, revert to backup (or delete if new) and return the error.
+  if (action.scope === "tool") {
+    const verifyResult = await verifyToolImport(target);
+    if (verifyResult.error) {
+      // Revert
+      if (backupPath) {
+        await copyFile(backupPath, target);
+      } else {
+        await rm(target, { force: true });
+      }
+      return [
+        `[error] tool failed to load — reverted.`,
+        `import error: ${verifyResult.error}`,
+        `fix the code and try again.`,
+      ].join("\n");
+    }
+  }
+
   await recordChange({
     action: action.kind,
     scope: action.scope,
@@ -241,9 +283,28 @@ export async function manageSelf(action: ManageSelfAction): Promise<string> {
 
   return [
     `${action.kind === "create" ? "created" : "updated"}: ${relative(ROOT, target)}`,
+    action.scope === "tool" ? "verified: tool loaded successfully" : "",
     backupPath ? `backup: ${relative(ROOT, backupPath)}` : "",
     `recorded in ${relative(ROOT, CHANGELOG)}`,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** Trial-import a tool file. Returns { error } if it fails, { ok } if it works. */
+async function verifyToolImport(filePath: string): Promise<{ error?: string }> {
+  try {
+    const st = await stat(filePath);
+    const mtimeKey = st.mtimeMs.toString(36);
+    const url = `${pathToFileURL(filePath).href}?v=${mtimeKey}`;
+    const mod: Record<string, unknown> = await import(url);
+
+    // Check that the module exports something usable
+    if (!mod.tool && !mod.tools && !mod.default) {
+      return { error: "no 'tool', 'tools', or 'default' export found" };
+    }
+    return {};
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 }

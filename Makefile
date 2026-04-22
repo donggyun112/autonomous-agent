@@ -1,88 +1,56 @@
-.PHONY: up down ollama ollama-stop mlx mlx-stop rebuild init status logs reset doctor live-local mlx-log ollama-log
+.PHONY: up down serve serve-stop rebuild init status logs reset doctor live-local serve-log
 
-# ── Full stack (Ollama + Docker) ──────────────────────────────────────
+# ── Full stack (vllm-mlx + Docker) ────────────────────────────────────
 
-up: ollama
+up: serve
 	@sleep 3
 	@docker compose up -d
-	@echo "✓ MLX server + Docker running"
+	@echo "✓ vllm-mlx + Docker running"
 
-down: ollama-stop
+down: serve-stop
 	@docker compose down
 	@echo "✓ All stopped"
 
-rebuild: ollama
+rebuild: serve
 	@sleep 3
 	@docker compose build --no-cache && docker compose up -d
 	@echo "✓ Rebuilt and running"
 
-# ── Ollama Server ─────────────────────────────────────────────────────
+# ── vllm-mlx Server ──────────────────────────────────────────────────
 
-OLLAMA_MODEL ?= qwen3.6:35b-a3b
+MODEL ?= mlx-community/Qwen3.6-35B-A3B-4bit
+PORT ?= 8080
 
-ollama:
-	@if curl -s http://localhost:11434/v1/models > /dev/null 2>&1; then \
-		echo "Ollama already running"; \
+serve:
+	@if curl -s http://localhost:$(PORT)/v1/models > /dev/null 2>&1; then \
+		echo "vllm-mlx already running"; \
 	else \
-		echo "Starting Ollama..."; \
-		OLLAMA_FLASH_ATTENTION=1 \
-		OLLAMA_KV_CACHE_TYPE=q8_0 \
-		OLLAMA_CONTEXT_LENGTH=65536 \
-		OLLAMA_KEEP_ALIVE=-1 \
-		OLLAMA_NUM_PARALLEL=1 \
-		OLLAMA_MAX_LOADED_MODELS=1 \
-		ollama serve > /tmp/ollama.log 2>&1 & \
-		sleep 3; \
-		if curl -s http://localhost:11434/v1/models > /dev/null 2>&1; then \
-			echo "✓ Ollama ready"; \
-		else \
-			echo "⚠ Ollama still starting... check /tmp/ollama.log"; \
-		fi; \
-	fi
-
-ollama-stop:
-	@pkill -f "ollama serve" 2>/dev/null && echo "✓ Ollama stopped" || echo "Ollama not running"
-
-ollama-log:
-	@tail -20 /tmp/ollama.log 2>/dev/null || echo "No Ollama log"
-
-ollama-pull:
-	@ollama pull $(OLLAMA_MODEL)
-
-# ── MLX Server (legacy) ───────────────────────────────────────────────
-
-MLX_MODEL ?= mlx-community/Qwen3.6-35B-A3B-4bit
-MLX_PORT ?= 8080
-
-mlx:
-	@if curl -s http://localhost:$(MLX_PORT)/v1/models > /dev/null 2>&1; then \
-		echo "MLX already running"; \
-	else \
-		echo "Starting MLX server ($(MLX_MODEL))..."; \
-		nohup mlx_lm.server \
-			--model $(MLX_MODEL) \
-			--port $(MLX_PORT) \
-			--chat-template-args '{"enable_thinking":true}' \
-			--prompt-cache-size 4 \
-			--prompt-cache-bytes 4294967296 \
+		echo "Starting vllm-mlx ($(MODEL))..."; \
+		nohup vllm-mlx serve $(MODEL) \
+			--port $(PORT) \
+			--enable-prefix-cache \
+			--kv-cache-quantization \
+			--kv-cache-quantization-bits 8 \
+			--enable-auto-tool-choice \
+			--tool-call-parser qwen \
+			--reasoning-parser qwen3 \
 			--prefill-step-size 4096 \
-			--prompt-concurrency 1 \
-			--decode-concurrency 1 \
-			> /tmp/mlx-server.log 2>&1 & \
-		echo "MLX PID: $$!"; \
-		sleep 5; \
-		if curl -s http://localhost:$(MLX_PORT)/v1/models > /dev/null 2>&1; then \
-			echo "✓ MLX ready"; \
+			--max-num-seqs 1 \
+			> /tmp/vllm-mlx.log 2>&1 & \
+		echo "vllm-mlx PID: $$!"; \
+		sleep 10; \
+		if curl -s http://localhost:$(PORT)/v1/models > /dev/null 2>&1; then \
+			echo "✓ vllm-mlx ready"; \
 		else \
-			echo "⚠ MLX still loading... check /tmp/mlx-server.log"; \
+			echo "⚠ vllm-mlx still loading... check /tmp/vllm-mlx.log"; \
 		fi; \
 	fi
 
-mlx-stop:
-	@pkill -f "mlx_lm.server" 2>/dev/null && echo "✓ MLX stopped" || echo "MLX not running"
+serve-stop:
+	@pkill -f "vllm-mlx" 2>/dev/null && echo "✓ vllm-mlx stopped" || echo "vllm-mlx not running"
 
-mlx-log:
-	@tail -20 /tmp/mlx-server.log 2>/dev/null || echo "No MLX log"
+serve-log:
+	@tail -20 /tmp/vllm-mlx.log 2>/dev/null || echo "No vllm-mlx log"
 
 # ── Agent management ──────────────────────────────────────────────────
 

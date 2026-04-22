@@ -594,8 +594,8 @@ export async function runCycle(options?: {
           result = "transitioned";
           await saveState(state);
           break;
-        } else if (state.mode === "REFLECT" && turn >= 5) {
-          // REFLECT gets at least 5 turns before forced sleep
+        } else if (state.mode === "REFLECT" && turn >= 20) {
+          // REFLECT gets at least 20 turns before forced sleep — enough for Phase 2 (fix/build tools)
           state = await transitionAndClear(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
           result = "transitioned";
           await saveState(state);

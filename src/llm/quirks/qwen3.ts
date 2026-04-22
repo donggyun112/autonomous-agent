@@ -25,18 +25,68 @@ function extractFunctionCalls(source: string): Array<{ name: string; input: Reco
   return calls;
 }
 
+/** Extract balanced braces substring starting at pos (handles nesting + quoted strings) */
+function extractBalancedBraces(src: string, pos: number): string | null {
+  if (src[pos] !== "{") return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = pos; i < src.length; i++) {
+    const ch = src[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"' && !esc) { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return src.slice(pos, i + 1); }
+  }
+  return null;
+}
+
+/** Try to parse JSON leniently — fix common Qwen quirks like missing } or ) instead of } */
+function lenientJsonParse(raw: string): Record<string, unknown> | null {
+  // Try as-is first
+  try { return JSON.parse(raw); } catch { /* continue */ }
+  // Try adding missing }
+  try { return JSON.parse(raw + "}"); } catch { /* continue */ }
+  // Try replacing trailing ) with }
+  const fixed = raw.replace(/\)\s*$/, "}");
+  try { return JSON.parse(fixed); } catch { /* continue */ }
+  // Try stripping everything after the last ] and adding }
+  const lastBracket = raw.lastIndexOf("]");
+  if (lastBracket > 0) {
+    try { return JSON.parse(raw.slice(0, lastBracket + 1) + "}"); } catch { /* continue */ }
+  }
+  return null;
+}
+
 /** Parse [calling tool: name({...})] or [Calling Tool: name({...})] format */
 function extractBracketCalls(source: string): Array<{ name: string; input: Record<string, unknown> }> {
   const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
-  const pattern = /\[(?:calling tool|Calling Tool|Calling tool|CALLING TOOL):\s*(\w+)\((\{[\s\S]*?\})\)\s*\]/gi;
+  const headerPattern = /\[(?:calling tool|Calling Tool|Calling tool|CALLING TOOL):\s*(\w+)\(/gi;
   let m;
-  while ((m = pattern.exec(source)) !== null) {
-    try {
-      // Handle single quotes → double quotes for JSON parsing
-      const argsStr = m[2].replace(/'/g, '"');
-      const parsed = JSON.parse(argsStr);
-      calls.push({ name: m[1], input: parsed });
-    } catch { /* skip malformed */ }
+  while ((m = headerPattern.exec(source)) !== null) {
+    const braceStart = m.index + m[0].length;
+    // Try balanced braces first
+    let jsonStr = extractBalancedBraces(source, braceStart);
+    if (jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr.replace(/'/g, '"'));
+        calls.push({ name: m[1], input: parsed });
+        continue;
+      } catch { /* try lenient */ }
+    }
+    // Fallback: extract from { to the closing )] or ]) and parse leniently
+    if (source[braceStart] === "{") {
+      const endMatch = source.slice(braceStart).search(/\)\s*\]|\]\s*\)/);
+      if (endMatch > 0) {
+        const raw = source.slice(braceStart, braceStart + endMatch).replace(/'/g, '"');
+        const parsed = lenientJsonParse(raw);
+        if (parsed) {
+          calls.push({ name: m[1], input: parsed });
+        }
+      }
+    }
   }
   return calls;
 }

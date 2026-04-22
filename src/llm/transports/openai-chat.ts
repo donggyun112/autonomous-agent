@@ -129,7 +129,10 @@ export class OpenAIChatTransport implements LlmTransport {
     }
 
     const oaiTools = toOpenAITools(args.tools);
-    if (oaiTools && oaiTools.length > 0) body.tools = oaiTools;
+    if (oaiTools && oaiTools.length > 0) {
+      body.tools = oaiTools;
+      body.tool_choice = "auto";
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -188,6 +191,48 @@ export class OpenAIChatTransport implements LlmTransport {
     text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
     // Also strip <tool_call> wrappers from text (tool calls will be parsed by quirks)
     text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+
+    // Repetition detection for non-streaming responses
+    if (text.length > 300) {
+      const lines = text.split("\n").filter(l => l.trim().length > 10);
+      if (lines.length >= 3) {
+        const last = lines[lines.length - 1].trim();
+        let repeats = 0;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lines[i].trim() === last) repeats++;
+          else break;
+        }
+        if (repeats >= 3) {
+          const firstIdx = text.indexOf(last);
+          if (firstIdx !== -1) text = text.slice(0, firstIdx + last.length).trimEnd();
+          console.warn(`[openai-chat] non-streaming repetition detected — truncated at ${text.length} chars`);
+        }
+      }
+      // Substring repetition (same phrase repeated without newlines)
+      if (text.length > 1000) {
+        const pattern = text.slice(-50);
+        if (pattern.length >= 20 && text.slice(0, -50).includes(pattern) &&
+            text.split(pattern).length > 5) {
+          text = text.slice(0, text.indexOf(pattern) + pattern.length);
+          console.warn(`[openai-chat] non-streaming substring repetition — truncated at ${text.length} chars`);
+        }
+      }
+    }
+    if (reasoning && reasoning.length > 500) {
+      const rLines = reasoning.split("\n").filter(l => l.trim().length > 10);
+      if (rLines.length >= 3) {
+        const last = rLines[rLines.length - 1].trim();
+        let repeats = 0;
+        for (let i = rLines.length - 1; i >= 0; i--) {
+          if (rLines[i].trim() === last) repeats++;
+          else break;
+        }
+        if (repeats >= 3) {
+          const firstIdx = reasoning.indexOf(last);
+          if (firstIdx !== -1) reasoning = reasoning.slice(0, firstIdx + last.length).trimEnd();
+        }
+      }
+    }
 
     // Parse structured tool_calls
     const tc = msg?.tool_calls as Array<Record<string, unknown>> | undefined;

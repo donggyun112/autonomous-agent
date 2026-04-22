@@ -25,30 +25,61 @@ function extractFunctionCalls(source: string): Array<{ name: string; input: Reco
   return calls;
 }
 
+/** Parse [calling tool: name({...})] or [Calling Tool: name({...})] format */
+function extractBracketCalls(source: string): Array<{ name: string; input: Record<string, unknown> }> {
+  const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+  const pattern = /\[(?:calling tool|Calling Tool|Calling tool|CALLING TOOL):\s*(\w+)\((\{[\s\S]*?\})\)\s*\]/gi;
+  let m;
+  while ((m = pattern.exec(source)) !== null) {
+    try {
+      // Handle single quotes → double quotes for JSON parsing
+      const argsStr = m[2].replace(/'/g, '"');
+      const parsed = JSON.parse(argsStr);
+      calls.push({ name: m[1], input: parsed });
+    } catch { /* skip malformed */ }
+  }
+  return calls;
+}
+
 const qwen3Quirk: ToolCallQuirk = {
   id: "qwen3-tool-parse",
 
   parse(text: string, reasoning?: string) {
-    // Scan both text and reasoning (Qwen sometimes puts tool calls in thinking)
     const sources = [text, reasoning].filter(Boolean) as string[];
 
     for (const source of sources) {
-      if (!source.includes("<function=")) continue;
-      const calls = extractFunctionCalls(source);
-      if (calls.length === 0) continue;
+      // Try <function=name> format first
+      if (source.includes("<function=")) {
+        const calls = extractFunctionCalls(source);
+        if (calls.length > 0) {
+          const toolCalls = calls.map((c, i) => ({
+            id: `call_${Date.now().toString(36)}_${i}`,
+            name: c.name,
+            input: c.input as Record<string, unknown>,
+          }));
+          const cleanedText = text
+            .replace(/<think>[\s\S]*?<\/think>/g, "")
+            .replace(/<function=[\s\S]*?<\/function>/g, "")
+            .trim();
+          return { toolCalls, cleanedText };
+        }
+      }
 
-      const toolCalls = calls.map((c, i) => ({
-        id: `call_${Date.now().toString(36)}_${i}`,
-        name: c.name,
-        input: c.input as Record<string, unknown>,
-      }));
-
-      const cleanedText = text
-        .replace(/<think>[\s\S]*?<\/think>/g, "")
-        .replace(/<function=[\s\S]*?<\/function>/g, "")
-        .trim();
-
-      return { toolCalls, cleanedText };
+      // Try [calling tool: name({...})] format (vllm-mlx streaming)
+      if (/\[(?:calling|Calling|CALLING)\s*(?:tool|Tool|TOOL)/i.test(source)) {
+        const calls = extractBracketCalls(source);
+        if (calls.length > 0) {
+          const toolCalls = calls.map((c, i) => ({
+            id: `call_${Date.now().toString(36)}_${i}`,
+            name: c.name,
+            input: c.input,
+          }));
+          const cleanedText = text
+            .replace(/\[(?:calling|Calling|CALLING)\s*(?:tool|Tool|TOOL):[\s\S]*?\]/gi, "")
+            .trim();
+          return { toolCalls, cleanedText };
+        }
+      }
     }
 
     return null;

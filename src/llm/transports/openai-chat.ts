@@ -103,13 +103,13 @@ export class OpenAIChatTransport implements LlmTransport {
 
   async call(args: TransportCallArgs): Promise<ThinkResult> {
     const url = `${args.config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
-    const hasTools = args.tools && args.tools.length > 0;
 
+    const hasTools = args.tools && args.tools.length > 0;
     const body: Record<string, unknown> = {
       model: args.model,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens,
-      stream: !hasTools, // non-streaming when tools present (MLX can't stream tool calls)
+      stream: true, // always stream — vllm-mlx supports streaming + tools
     };
 
     // Sampling params
@@ -150,12 +150,8 @@ export class OpenAIChatTransport implements LlmTransport {
       throw new Error(`OpenAI-chat error ${res.status}: ${errText}`);
     }
 
-    // ── Non-streaming path (tools present) ────────────────────────
-    if (hasTools) {
-      return this.parseNonStreaming(await res.json(), args);
-    }
-
-    // ── Streaming path ────────────────────────────────────────────
+    // Streaming path — vllm-mlx supports streaming + tool calls.
+    // Quirk parsers handle text-based tool calls as fallback.
     if (!res.body) throw new Error("No response body");
     return this.parseStreaming(res.body, args);
   }
@@ -226,6 +222,7 @@ export class OpenAIChatTransport implements LlmTransport {
   ): Promise<ThinkResult> {
     let text = "";
     let reasoning = "";
+    let reasoningStarted = false;
     const toolCalls: ToolCall[] = [];
     const tcAccum: Record<string, { id?: string; name: string; args: string }> = {};
     let aborted = false;
@@ -238,8 +235,12 @@ export class OpenAIChatTransport implements LlmTransport {
       // Reasoning/thinking tokens — accumulate for quirks
       if (typeof delta.reasoning === "string" && delta.reasoning) {
         reasoning += delta.reasoning;
-        const tag = text.length === 0 && !delta.reasoning.startsWith("[think]") ? "[think] " : "";
-        args.onEvent?.({ type: "text_delta", delta: tag + delta.reasoning });
+        if (!reasoningStarted) {
+          reasoningStarted = true;
+          args.onEvent?.({ type: "text_delta", delta: "[think] " + delta.reasoning });
+        } else {
+          args.onEvent?.({ type: "text_delta", delta: delta.reasoning });
+        }
 
         // Repetition detection in reasoning (same logic as text)
         if (reasoning.length > 500) {

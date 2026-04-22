@@ -109,7 +109,7 @@ export class OpenAIChatTransport implements LlmTransport {
       model: args.model,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens,
-      stream: !hasTools, // non-streaming when tools present (MLX quirk)
+      stream: !hasTools, // non-streaming when tools present (MLX can't stream tool calls)
     };
 
     // Sampling params

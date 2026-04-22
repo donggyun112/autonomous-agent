@@ -65,6 +65,23 @@ const qwen3Quirk: ToolCallQuirk = {
         }
       }
 
+      // Try JSON block format: ```json { "tool": "name", "arguments": {...} } ```
+      const jsonBlockMatch = source.match(/```json\s*\n?\s*\{\s*"tool"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{[\s\S]*?\})\s*\}\s*\n?\s*```/);
+      if (jsonBlockMatch) {
+        try {
+          const parsed = JSON.parse(jsonBlockMatch[2]);
+          const toolCalls = [{
+            id: `call_${Date.now().toString(36)}_0`,
+            name: jsonBlockMatch[1],
+            input: parsed,
+          }];
+          const cleanedText = text
+            .replace(/```json[\s\S]*?```/g, "")
+            .trim();
+          return { toolCalls, cleanedText };
+        } catch { /* skip malformed */ }
+      }
+
       // Try [calling tool: name({...})] format (vllm-mlx streaming)
       if (/\[(?:calling|Calling|CALLING)\s*(?:tool|Tool|TOOL)/i.test(source)) {
         const calls = extractBracketCalls(source);

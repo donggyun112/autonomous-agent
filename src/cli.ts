@@ -466,24 +466,18 @@ async function live(): Promise<void> {
       consecutiveErrors = 0;
       await resetMoltFailureCount();
 
-      // GPU thermal management: rest between cycles to prevent sustained
-      // high temperature on Apple Silicon. Without this, continuous inference
-      // causes 90°C+ GPU, coil whine, and fan hunting.
-      const CYCLE_REST_MS = Number(process.env.CYCLE_REST_MS) || 300_000; // 5 min default
       if (result.reason === "rested" && result.toolCalls === 0) {
         consecutiveRests += 1;
-        console.log(`[live] idle rest — cooling down 60s (${consecutiveRests} consecutive)`);
+        console.log(`[live] idle rest — cooling down 30s (${consecutiveRests} consecutive)`);
         if (consecutiveRests >= 5) {
           console.log("[live] stuck — clearing session for fresh start");
           const { clearSession } = await import("./core/session-store.js");
           await clearSession();
           consecutiveRests = 0;
         }
-        await sleep(60_000);
+        await sleep(30_000);
       } else {
         consecutiveRests = 0;
-        console.log(`[live] cycle complete — GPU rest ${CYCLE_REST_MS / 1000}s`);
-        await sleep(CYCLE_REST_MS);
       }
 
       // Round-6 P1 fix: after molt_swap, we need to stop the container

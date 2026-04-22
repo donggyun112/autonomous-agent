@@ -876,7 +876,7 @@ export async function runCycle(options?: {
     observer?.onTurnEnd?.(turn);
 
     // GPU cooldown between turns — prevents sustained 90°C+ on Apple Silicon.
-    const TURN_COOLDOWN_MS = Number(process.env.TURN_COOLDOWN_MS) || 5000;
+    const TURN_COOLDOWN_MS = Number(process.env.TURN_COOLDOWN_MS) || 10000;
     await new Promise(r => setTimeout(r, TURN_COOLDOWN_MS));
 
     if (transitionRequested) {

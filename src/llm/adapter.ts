@@ -60,8 +60,8 @@ export class AdapterRegistry {
 export function createDefaultRegistry(): AdapterRegistry {
   const registry = new AdapterRegistry();
 
-  // ── Anthropic (anthropic-messages transport) ─────────────────────
-  registry.register("anthropic", async () => {
+  // ── Anthropic (only if key available — prevents useless fallback)
+  if (process.env.ANTHROPIC_API_KEY) registry.register("anthropic", async () => {
     const { AnthropicTransport } = await import("./transports/anthropic.js");
     const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
     const { getAuthSource } = await import("./auth/source.js");
@@ -79,8 +79,8 @@ export function createDefaultRegistry(): AdapterRegistry {
     });
   });
 
-  // ── OpenAI (openai-chat transport) ──────────────────────────────
-  registry.register("openai", async () => {
+  // ── OpenAI (only if key available — prevents useless fallback)
+  if (process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes("dummy")) registry.register("openai", async () => {
     const { OpenAIChatTransport } = await import("./transports/openai-chat.js");
     const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
     return new SdkAdapter({

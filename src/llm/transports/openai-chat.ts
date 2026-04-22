@@ -109,7 +109,7 @@ export class OpenAIChatTransport implements LlmTransport {
       model: args.model,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens,
-      stream: true, // always stream — vllm-mlx supports streaming + tools
+      stream: !hasTools, // non-streaming when tools present for structured tool_calls
     };
 
     // Sampling params
@@ -150,8 +150,12 @@ export class OpenAIChatTransport implements LlmTransport {
       throw new Error(`OpenAI-chat error ${res.status}: ${errText}`);
     }
 
-    // Streaming path — vllm-mlx supports streaming + tool calls.
-    // Quirk parsers handle text-based tool calls as fallback.
+    // Non-streaming when tools present (structured tool_calls response)
+    if (hasTools) {
+      return this.parseNonStreaming(await res.json(), args);
+    }
+
+    // Streaming when no tools (text-only response)
     if (!res.body) throw new Error("No response body");
     return this.parseStreaming(res.body, args);
   }

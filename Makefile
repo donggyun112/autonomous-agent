@@ -29,12 +29,16 @@ serve:
 		nohup vllm-mlx serve $(MODEL) \
 			--port $(PORT) \
 			--enable-prefix-cache \
+			--prefix-cache-size 4 \
+			--cache-memory-percent 0.3 \
 			--kv-cache-quantization \
 			--kv-cache-quantization-bits 8 \
 			--enable-auto-tool-choice \
 			--tool-call-parser qwen \
 			--reasoning-parser qwen3 \
 			--prefill-step-size 4096 \
+			--chunked-prefill-tokens 4096 \
+			--gpu-memory-utilization 0.8 \
 			--max-num-seqs 1 \
 			> /tmp/vllm-mlx.log 2>&1 & \
 		echo "vllm-mlx PID: $$!"; \

@@ -413,8 +413,28 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "entity-auto-gen", message: (err as Error).message });
   }
 
-  // 3. REM association — REMOVED. Agent links memories via memory_manage tool.
-  // 4. Prune — REMOVED. Agent decides what to delete via memory_manage tool.
+  // 3. REM association — find hidden links between distant memories.
+  try {
+    for (let i = 0; i < ASSOCIATION_TRIES; i++) {
+      const pair = await pickRandomDistantPair();
+      if (!pair) break;
+      const link = await findAssociation({ a: pair.a.content, b: pair.b.content });
+      if (link) {
+        await linkMemories(pair.a.id, pair.b.id, link.via);
+        report.associationsFound += 1;
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "rem-association", message: (err as Error).message });
+  }
+
+  // 4. Prune weak — remove old memories that have never been recalled.
+  try {
+    const pruned = await pruneWeak({ minAgeSec: 3 * 86400, maxToPrune: 3 });
+    report.pruned = pruned?.length ?? 0;
+  } catch (err) {
+    report.errors.push({ step: "prune", message: (err as Error).message });
+  }
 
   // 5. Integrate journal into whoAmI.
   try {

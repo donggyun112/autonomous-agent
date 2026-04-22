@@ -268,6 +268,28 @@ export async function runSleepConsolidation(): Promise<SleepReport> {
     report.errors.push({ step: "wiki-init", message: (err as Error).message });
   }
 
+  // 1. Dream — compress shallow memories via LLM.
+  // Shallow = low depth, meaning they haven't been compressed yet.
+  try {
+    const shallow = await shallowMemories(0.3, DREAM_BATCH_SIZE);
+    for (const mem of shallow) {
+      try {
+        const compressed = await compressMemory(mem.content);
+        if (compressed && compressed.length < mem.content.length) {
+          await dreamMemory({
+            memoryId: mem.id,
+            compressedContent: compressed,
+          });
+          report.dreamed += 1;
+        }
+      } catch (err) {
+        report.errors.push({ step: "dream", message: `${mem.id}: ${(err as Error).message}` });
+      }
+    }
+  } catch (err) {
+    report.errors.push({ step: "dream-load", message: (err as Error).message });
+  }
+
   // 2. Cluster schemas → wiki pages.
   // Each cluster of memories that share keys becomes a wiki page. If a page
   // on that slug already exists, the LLM is given the existing body and

@@ -26,18 +26,19 @@ serve:
 		echo "vllm-mlx already running"; \
 	else \
 		echo "Starting vllm-mlx ($(MODEL))..."; \
-		nohup /tmp/swiftlm/SwiftLM \
-			--model $(MODEL) \
+		nohup vllm-mlx serve $(MODEL) \
 			--port $(PORT) \
-			--thinking \
-			--turbo-kv \
-			--ctx-size 65536 \
-			--max-tokens 4096 \
-			--parallel 1 \
-			--prefill-size 2048 \
-			--mem-limit 36000 \
-			--top-k 20 \
-			> /tmp/swiftlm.log 2>&1 & \
+			--continuous-batching \
+			--use-paged-cache \
+			--enable-prefix-cache \
+			--kv-cache-quantization \
+			--kv-cache-quantization-bits 8 \
+			--enable-auto-tool-choice \
+			--tool-call-parser qwen3_coder \
+			--reasoning-parser qwen3 \
+			--prefill-step-size 4096 \
+			--max-num-seqs 4 \
+			> /tmp/vllm-mlx.log 2>&1 & \
 		echo "vllm-mlx PID: $$!"; \
 		sleep 10; \
 		if curl -s http://localhost:$(PORT)/v1/models > /dev/null 2>&1; then \
@@ -48,10 +49,10 @@ serve:
 	fi
 
 serve-stop:
-	@pkill -f "vllm-mlx" 2>/dev/null && echo "✓ vllm-mlx stopped" || echo "vllm-mlx not running"
+	@pkill -f "vllm-mlx serve" 2>/dev/null && echo "✓ vllm-mlx stopped" || echo "vllm-mlx not running"
 
 serve-log:
-	@tail -20 /tmp/vllm-mlx.log 2>/dev/null || echo "No vllm-mlx log"
+	@tail -30 /tmp/vllm-mlx.log 2>/dev/null || echo "No vllm-mlx log"
 
 # ── Agent management ──────────────────────────────────────────────────
 

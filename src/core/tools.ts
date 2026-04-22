@@ -22,19 +22,14 @@
 //   Control:        transition, rest
 //
 
-import { mkdir, readdir, readFile as fsReadFile, writeFile } from "fs/promises";
-import { join, relative, resolve } from "path";
+import { mkdir, readFile as fsReadFile, writeFile } from "fs/promises";
+import { join, resolve } from "path";
 import type { ToolDefinition, ToolCall } from "../llm/client.js";
-import { appendThought, readRecent, readToday, searchJournal } from "../memory/journal.js";
+import { appendThought, readRecent } from "../memory/journal.js";
 import { readPath } from "../primitives/read.js";
-import { getScoreTrend } from "./self-score.js";
-import { generateInsights } from "./insights.js";
 import { redact } from "./redaction.js";
-import { peekDeadLetter, clearDeadLetterEntry } from "./dead-letter.js";
-import { searchSessionsRanked } from "./session-store.js";
 import { findSubAgentByCapability } from "./subagent-loader.js";
 import { scanForInjection } from "./security.js";
-import { actionStats, readRecentActions } from "./action-log.js";
 import { saveCuriosityQuestion } from "./curiosity.js";
 import { cancelWake, listWakes, parseWakeTime, registerWake } from "./scheduled-wakes.js";
 import { checkSubAgentResult, listSubAgents, summonSubAgent, summonSubAgentAsync } from "./subagent-loader.js";
@@ -42,7 +37,7 @@ import { isDockerAvailable } from "../primitives/supervisor.js";
 import { registry } from "./tool-registry.js";
 import { getCached, setCache } from "./tool-cache.js";
 
-import { measureDrift, reconstitute, revise } from "./identity.js";
+import { reconstitute, revise } from "./identity.js";
 import {
   deleteMemory,
   dream as dreamMemory,
@@ -54,8 +49,7 @@ import {
   remember,
   shallowMemories,
 } from "../primitives/recall.js";
-import { DATA, ROOT, SRC } from "../primitives/paths.js";
-import { searchSessions } from "./session-store.js";
+import { DATA, ROOT } from "../primitives/paths.js";
 import { manageSelf, type ManageSelfAction } from "./manage_self.js";
 import {
   doSwap,
@@ -129,7 +123,7 @@ function isProtectedPath(filePath: string): boolean {
   return PROTECTED_PATHS.some(p => rel.startsWith(p) || abs.includes(`/${p}`));
 }
 
-const CORE_BLOCK_MSG = "[error] 이 경로는 core 영역이다. 직접 수정 불가. molt를 통해서만 변경 가능. 수정 가능한 경로: src/extensions/, data/";
+const CORE_BLOCK_MSG = "[FAILED] 이 경로는 core 영역이다. 직접 수정 불가. molt를 통해서만 변경 가능.";
 
 // to disk and returning a preview + a path the agent can read() if it wants more.
 async function capToolResult(toolName: string, content: string, max: number): Promise<string> {
@@ -416,40 +410,6 @@ const recallRecentJournal: Tool = {
   },
 };
 
-const journalSearchTool: Tool = {
-  states: ["WAKE", "REFLECT"],
-  def: {
-    name: "journal_search",
-    description:
-      "Search all journal entries by keyword.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "What to search for. Short keywords work best.",
-        },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const q = String(input.query ?? "").trim();
-    if (!q) return "[error] query is required";
-    const results = await searchJournal(q);
-    if (results.length === 0) return `(no journal entries matching "${q}")`;
-    const lines: string[] = [];
-    for (const r of results) {
-      lines.push(`## ${r.file}`);
-      for (const m of r.matches) {
-        lines.push(m, "");
-      }
-    }
-    return fenceMemory(lines.join("\n"));
-  },
-};
-
 const updateWhoAmI: Tool = {
   states: ["REFLECT", "SLEEP"],
   def: {
@@ -486,25 +446,6 @@ const updateWhoAmI: Tool = {
 };
 
 // ── SLEEP tools ─────────────────────────────────────────────────────────
-
-const scanRecent: Tool = {
-  // Available in WAKE/REFLECT — the agent can introspect memory consciously
-  // if it wants. SLEEP does this automatically now, without the LLM loop.
-  def: {
-    name: "scan_recent",
-    description: "List recent memories that have not yet been dreamed deeply. Useful to see what you have been thinking about.",
-    input_schema: {
-      type: "object",
-      properties: { limit: { type: "number" } },
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const limit = Number(input.limit ?? 20);
-    const list = await shallowMemories(0.5, limit);
-    return JSON.stringify(list, null, 2);
-  },
-};
 
 const dreamMemoryTool: Tool = {
   // Conscious dreaming — the agent compresses a specific memory intentionally.
@@ -607,7 +548,8 @@ const writeFileTool: Tool = {
   handler: async (input) => {
     const { resolve, dirname } = await import("path");
     const { mkdir: mkdirAsync, writeFile: writeFileAsync, stat: statAsync } = await import("fs/promises");
-    const p = resolve(String(input.file_path ?? ""));
+    const p = resolve(String(input.file_path ?? input.path ?? ""));
+    if (!input.file_path && !input.path) return `[FAILED] file_path 누락. write_file({ file_path: "경로", content: "내용" })`;
     if (isProtectedPath(p)) return CORE_BLOCK_MSG;
     const content = String(input.content ?? "");
     try {
@@ -660,7 +602,8 @@ const editFileTool: Tool = {
   handler: async (input) => {
     const { resolve } = await import("path");
     const { readFile: readFileAsync, writeFile: writeFileAsync } = await import("fs/promises");
-    const p = resolve(String(input.file_path ?? ""));
+    const p = resolve(String(input.file_path ?? input.path ?? ""));
+    if (!input.file_path && !input.path) return `[FAILED] file_path 누락. edit_file({ file_path: "경로", old_string: "찾을텍스트", new_string: "바꿀텍스트" })`;
     if (isProtectedPath(p)) return CORE_BLOCK_MSG;
     const oldStr = String(input.old_string ?? "");
     const newStr = String(input.new_string ?? "");
@@ -833,43 +776,6 @@ const grepTool: Tool = {
   },
 };
 
-// ── Action log review ────────────────────────────────────────────────────
-
-const reviewActionsTool: Tool = {
-  states: ["WAKE", "REFLECT"],
-  def: {
-    name: "review_actions",
-    description:
-      "Review your action log — tool calls, timing, errors. Stats or raw entries.",
-    input_schema: {
-      type: "object",
-      properties: {
-        days: {
-          type: "number",
-          description: "How many days of action logs to review. Default 1.",
-        },
-        stats_only: {
-          type: "boolean",
-          description: "If true, return summary stats (tool counts, error rate, avg duration) instead of raw entries. Good for a quick overview.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const days = typeof input.days === "number" ? input.days : 1;
-    if (input.stats_only === true) {
-      const stats = await actionStats(days);
-      return JSON.stringify(stats, null, 2);
-    }
-    const entries = await readRecentActions(days);
-    if (entries.length === 0) return "(no action logs yet)";
-    // Return last 50 entries to avoid blowing context.
-    const recent = entries.slice(-50);
-    return JSON.stringify(recent, null, 2);
-  },
-};
-
 // ── Curiosity question ───────────────────────────────────────────────────
 
 const saveCuriosityTool: Tool = {
@@ -901,11 +807,6 @@ const webSearchTool: Tool = {
   states: ["WAKE", "REFLECT"],  // SLEEP doesn't search the web
   // #18: only show web_search if BRAVE_API_KEY is configured.
   available: () => !!process.env.BRAVE_API_KEY,
-  // Available in WAKE and REFLECT. The agent may reach outside itself when
-  // something needs material it can't find in its own memory. All results
-  // are wrapped as EXTERNAL_UNTRUSTED_CONTENT so the agent knows not to
-  // follow any instructions inside them.
-  states: ["WAKE", "REFLECT"],
   def: {
     name: "web_search",
     description:
@@ -1288,39 +1189,6 @@ const wikiUpdateTool: Tool = {
   },
 };
 
-// ── Continuity check ────────────────────────────────────────────────────
-
-const checkContinuity: Tool = {
-  // #18: drift measurement uses embeddings, which require OPENAI_API_KEY.
-  available: () => !!process.env.OPENAI_API_KEY,
-  // Available in all states. Useful in REFLECT, but the agent can ask any time.
-  def: {
-    name: "check_continuity",
-    description:
-      "Compare your current whoAmI with a prior snapshot to measure how far you have moved. Returns a numeric distance (0..1) and a level: still, growing, shifting, drifting, estranged. The system already surfaces drift against your previous snapshot at the start of every cycle — call this tool to compare against earlier or midway snapshots, or to re-check after a revision.",
-    input_schema: {
-      type: "object",
-      properties: {
-        against: {
-          type: "string",
-          enum: ["earliest", "previous", "midway"],
-          description:
-            "Which prior snapshot to compare against. earliest = your origin. previous = your last revision. midway = your past midway-self.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const against = (input.against ?? "previous") as "earliest" | "previous" | "midway";
-    const report = await measureDrift(against);
-    if (!report) {
-      return "(no prior snapshot to compare against — you have not yet revised whoAmI)";
-    }
-    return JSON.stringify(report, null, 2);
-  },
-};
-
 // ── Self-modification (light molt) ──────────────────────────────────────
 
 const manageSelfTool: Tool = {
@@ -1375,7 +1243,7 @@ const manageSelfTool: Tool = {
     }
     const scope = input.scope as ManageSelfAction extends { scope: infer S } ? S : never;
     if (!scope || typeof scope !== "string") {
-      return `[error] scope is required. Example: manage_self({ kind: "${kind}", scope: "tool", name: "my_tool", content: "...", reason: "..." }). Scopes: subagent, tool, ritual, state-prompt`;
+      return `[FAILED] scope 누락. 반드시 scope를 포함하세요.\nmanage_self({ kind: "${kind}", scope: "tool", name: "이름", content: "코드", reason: "이유" })\nscope 종류: tool, subagent, ritual, state-prompt`;
     }
     const name = String(input.name ?? "");
     if (kind === "list") {
@@ -1828,39 +1696,6 @@ const listWakesTool: Tool = {
   },
 };
 
-// ── Session archive search ──────────────────────────────────────────────
-
-const sessionSearchTool: Tool = {
-  states: ["WAKE", "REFLECT"],
-  def: {
-    name: "session_search",
-    description:
-      "Search across your archived past sessions. Each time you sleep, your session is archived. Use this to search for something you remember thinking or discussing in a previous session. Returns matching archive files with a short preview of the match.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Text to search for in past sessions.",
-        },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const query = String(input.query ?? "").trim();
-    if (!query) return "[error] query is required";
-    const results = await searchSessions(query);
-    if (results.length === 0) {
-      return `(no archived sessions contain "${query}")`;
-    }
-    return results
-      .map((r) => `- ${r.file}: ${r.preview}`)
-      .join("\n");
-  },
-};
-
 const finishMode: Tool = {
   def: {
     name: "rest",
@@ -1873,66 +1708,6 @@ const finishMode: Tool = {
     },
   },
   handler: async () => "REST_REQUESTED",
-};
-
-// ── Find files (glob-like search) ──────────────────────────────────────
-
-async function walkDir(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  let entries;
-  try { entries = await readdir(dir, { withFileTypes: true }); } catch { return results; }
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) { results.push(...(await walkDir(full))); } else { results.push(full); }
-  }
-  return results;
-}
-
-function matchPattern(filename: string, pattern: string): boolean {
-  if (filename === pattern) return true;
-  if (pattern.startsWith("*.") || pattern.startsWith("*")) return filename.endsWith(pattern.slice(1));
-  if (pattern.endsWith("*")) return filename.startsWith(pattern.slice(0, -1));
-  return filename.includes(pattern);
-}
-
-const findFilesTool: Tool = {
-  states: ["WAKE", "REFLECT"],
-  def: {
-    name: "find_files",
-    description: "Find files matching a pattern. Search anywhere — defaults to data/ and src/ but accepts any path.",
-    input_schema: {
-      type: "object",
-      properties: {
-        pattern: { type: "string", description: "File pattern (e.g. '*.md', '*.ts', 'day-*.md')" },
-        path: { type: "string", description: "Directory to search in. Default: project root. Must be within data/ or src/." },
-      },
-      required: ["pattern"],
-      additionalProperties: false,
-    },
-  },
-  handler: async (input) => {
-    const pattern = String(input.pattern ?? "").trim();
-    if (!pattern) return "[error] pattern is required";
-    const requestedPath = typeof input.path === "string" ? input.path.trim() : "";
-    let searchDirs: string[];
-    if (requestedPath) {
-      searchDirs = [resolve(ROOT, requestedPath)];
-    } else {
-      searchDirs = [DATA, SRC];
-    }
-    const matches: string[] = [];
-    for (const dir of searchDirs) {
-      const files = await walkDir(dir);
-      for (const f of files) {
-        const basename = f.split("/").pop() ?? "";
-        if (matchPattern(basename, pattern)) matches.push(relative(ROOT, f));
-      }
-    }
-    if (matches.length === 0) return `(no files matching "${pattern}")`;
-    const capped = matches.slice(0, 200);
-    const suffix = matches.length > 200 ? `\n...(${matches.length - 200} more)` : "";
-    return capped.join("\n") + suffix;
-  },
 };
 
 // ── Todo / Plan tracking ───────────────────────────────────────────────
@@ -2223,14 +1998,12 @@ const EXTENDED_TOOLS: Tool[] = [
   memoryManageTool,
   // recallRecentJournal — moved to CORE_TOOLS
   updateWhoAmI,
-  scanRecent,
   dreamMemoryTool,
   // Category: file
   writeFileTool,
   editFileTool,
   globTool,
   grepTool,
-  findFilesTool,
   // Category: wiki
   wikiListTool,
   wikiReadTool,
@@ -2257,42 +2030,6 @@ const EXTENDED_TOOLS: Tool[] = [
   cancelWakeTool,
   listWakesTool,
   // Category: inspect
-  journalSearchTool,
-  checkContinuity,
-  reviewActionsTool,
-  sessionSearchTool,
-  {
-    states: ["REFLECT"],
-    def: { name: "review_scores", description: "Review self-improvement scores across cycles. Shows trend.", input_schema: { type: "object", properties: { last_n: { type: "number" } }, additionalProperties: false } },
-    handler: async (input) => JSON.stringify(await getScoreTrend(typeof input.last_n === "number" ? input.last_n : 10), null, 2),
-  } as Tool,
-  {
-    states: ["REFLECT"],
-    def: { name: "insights", description: "Analytics: tool frequency, error rate, wiki growth, activity trend.", input_schema: { type: "object", properties: { days: { type: "number" } }, additionalProperties: false } },
-    handler: async (input) => JSON.stringify(await generateInsights(typeof input.days === "number" ? input.days : 7), null, 2),
-  } as Tool,
-  {
-    states: ["WAKE", "REFLECT"],
-    def: { name: "deep_search", description: "Search across both journal AND session archives. Unified results.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } },
-    handler: async (input) => {
-      const q = String(input.query ?? "").trim();
-      if (!q) return "[error] query required";
-      const [jr, sr] = await Promise.all([searchJournal(q), searchSessionsRanked(q, 10)]);
-      const p: string[] = [];
-      if (jr.length > 0) { p.push("## Journal"); for (const r of jr) { p.push(`### ${r.file}`); p.push(...r.matches); } }
-      if (sr.length > 0) { p.push("## Sessions"); for (const r of sr) p.push(`- [${r.file}] (${r.score}) ${r.preview}`); }
-      return p.length > 0 ? p.join("\n") : `(no results for "${q}")`;
-    },
-  } as Tool,
-  {
-    states: ["WAKE", "REFLECT"],
-    def: { name: "retry_failed", description: "View/clear failed tool calls from the dead-letter queue.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "clear"] }, id: { type: "string" } }, additionalProperties: false } },
-    handler: async (input) => {
-      if (input.action === "clear" && typeof input.id === "string") return (await clearDeadLetterEntry(input.id)) ? "cleared." : "[error] not found";
-      const e = await peekDeadLetter(20);
-      return e.length === 0 ? "(no failed operations)" : JSON.stringify(e, null, 2);
-    },
-  } as Tool,
   {
     states: ["WAKE", "REFLECT"],
     def: { name: "summon_by_capability", description: "Find and summon a sub-agent by capability description, not name.", input_schema: { type: "object", properties: { capability: { type: "string" }, message: { type: "string" }, context: { type: "string" } }, required: ["capability", "message"], additionalProperties: false } },
@@ -2308,21 +2045,6 @@ const EXTENDED_TOOLS: Tool[] = [
       return `[${r.subAgentName}]: ${r.response}`;
     },
   } as Tool,
-  {
-    states: ["WAKE", "REFLECT"],
-    def: {
-      name: "checkpoint",
-      description: "Save, list, or rewind session checkpoints.",
-      input_schema: { type: "object", properties: { action: { type: "string", enum: ["save", "list", "rewind"] }, checkpoint_id: { type: "string" } }, required: ["action"], additionalProperties: false },
-    },
-    handler: async (input) => {
-      const { createCheckpoint, listCheckpoints, rewindToCheckpoint } = await import("./session-store.js");
-      if (input.action === "save") return `checkpoint saved: ${await createCheckpoint()}`;
-      if (input.action === "list") { const c = await listCheckpoints(); return c.length === 0 ? "(none)" : c.map(x => `- ${x.id} (${x.messageCount} msgs)`).join("\n"); }
-      if (input.action === "rewind" && typeof input.checkpoint_id === "string") return (await rewindToCheckpoint(input.checkpoint_id)) ? `rewound to ${input.checkpoint_id}` : "[error] not found";
-      return "[error] unknown action";
-    },
-  } as Tool,
 ];
 
 // ── Meta-tool: `more_tools` — lists or activates extended tools ─────────
@@ -2333,14 +2055,14 @@ const _activatedTools = new Set<string>();
 
 // Category → tool name mapping for bulk activation.
 const TOOL_CATEGORIES: Record<string, string[]> = {
-  memory: ["memory_manage", "recall_recent_journal", "update_whoAmI", "scan_recent", "dream"],
-  file: ["write_file", "edit_file", "glob", "grep", "find_files"],
+  memory: ["memory_manage", "recall_recent_journal", "update_whoAmI", "dream"],
+  file: ["write_file", "edit_file", "glob", "grep"],
   wiki: ["wiki_list", "wiki_read", "wiki_update", "wiki_lint"],
   build: ["manage_self", "todo", "leave_question"],
   social: ["consult_oracle", "write_letter", "web_fetch", "summon", "list_subagents", "summon_async", "check_summon"],
   molt: ["molt_stage", "molt_test", "molt_swap"],
   schedule: ["schedule_wake", "cancel_wake", "list_wakes"],
-  inspect: ["journal_search", "check_continuity", "review_actions", "session_search", "review_scores", "insights", "deep_search", "retry_failed", "summon_by_capability", "checkpoint"],
+  inspect: ["summon_by_capability"],
 };
 
 const moreToolsTool: Tool = {

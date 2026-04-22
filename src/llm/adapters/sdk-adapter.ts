@@ -48,12 +48,12 @@ export class SdkAdapter implements LlmAdapter {
       },
     });
 
-    // Apply quirks if transport found no tool calls.
-    // Pass reasoning too — Qwen puts tool calls inside <think> blocks.
-    if (result.toolCalls.length === 0 && meta.quirks?.length) {
+    // Always apply quirks — model may output some tool calls as structured
+    // and others as text in the same response. Quirks catch the text ones.
+    if (meta.quirks?.length) {
       const quirked = applyQuirks(meta.quirks, result.text, result.reasoning);
       if (quirked.toolCalls.length > 0) {
-        result.toolCalls = quirked.toolCalls;
+        result.toolCalls = [...result.toolCalls, ...quirked.toolCalls];
         result.text = quirked.cleanedText;
         result.stopReason = "tool_use";
       }

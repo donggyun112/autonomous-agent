@@ -327,6 +327,16 @@ export class OpenAIChatTransport implements LlmTransport {
       console.warn(`[openai-chat] repetition detected — output truncated at ${text.length} chars`);
     }
 
+    // Clean tool call artifacts from text (vllm-mlx leaves text remnants)
+    if (toolCalls.length > 0) {
+      text = text
+        .replace(/\[Calling tool:.*?\]/g, "")
+        .replace(/\[{"name":".*?\]\s*/g, "")
+        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+        .replace(/<function=[\s\S]*?<\/function>/g, "")
+        .trim();
+    }
+
     const result: ThinkResult = {
       text,
       toolCalls,

@@ -102,6 +102,18 @@ function textSimilarity(a: string, b: string): number {
 
 const USER_PROMPT_DIR = join(DATA, "prompts");
 
+/** Transition + clear session. Every mode change wipes the conversation. */
+async function transitionAndClear(
+  state: AgentState, to: Mode, reason: string,
+  options?: { wakeAfterMs?: number },
+): Promise<AgentState> {
+  const next = await transition(state, to, reason, options);
+  if (next.mode !== state.mode) {
+    await clearSession();
+  }
+  return next;
+}
+
 async function loadPrompt(name: string): Promise<string> {
   // User-defined prompts in data/prompts/ override built-in defaults.
   try {
@@ -187,7 +199,7 @@ export async function runCycle(options?: {
     // WAKE → REFLECT. REFLECT is never skipped — the agent must self-reflect
     // before sleeping. The mid-cycle check will push REFLECT → SLEEP after
     // the agent has had at least a few turns to reflect.
-    state = await transition(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
+    state = await transitionAndClear(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
   }
   // NOTE: REFLECT is exempt from the pressure-gate here. It runs its turns
   // and the mid-cycle check (turn >= 5) handles REFLECT → SLEEP.
@@ -578,13 +590,13 @@ export async function runCycle(options?: {
       if (livePressure.combined >= FORCE_THRESHOLD) {
         lastPressure = livePressure;
         if (state.mode === "WAKE") {
-          state = await transition(state, "REFLECT", `forced reflect mid-cycle (pressure ${livePressure.combined.toFixed(2)})`);
+          state = await transitionAndClear(state, "REFLECT", `forced reflect mid-cycle (pressure ${livePressure.combined.toFixed(2)})`);
           result = "transitioned";
           await saveState(state);
           break;
         } else if (state.mode === "REFLECT" && turn >= 5) {
           // REFLECT gets at least 5 turns before forced sleep
-          state = await transition(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
+          state = await transitionAndClear(state, "SLEEP", `forced by sleep pressure mid-cycle (${livePressure.combined.toFixed(2)})`);
           result = "transitioned";
           await saveState(state);
           break;
@@ -976,7 +988,7 @@ export async function runCycle(options?: {
       // LLM-driven memory management is complete.
       const wasInSleep = state.mode === "SLEEP";
       const fromMode = state.mode;
-      state = await transition(state, transitionRequested.to, transitionRequested.reason, {
+      state = await transitionAndClear(state, transitionRequested.to, transitionRequested.reason, {
         wakeAfterMs: transitionRequested.wakeAfterMs,
       });
 
@@ -992,11 +1004,7 @@ export async function runCycle(options?: {
         state = await loadState();
       }
 
-      // Every mode transition clears the session.
-      // Each mode has its own purpose — carrying old context across modes
-      // wastes tokens and breaks KV cache.
-      await clearSession();
-
+      // Session already cleared by transitionAndClear().
       result = "transitioned";
       break;
     }
@@ -1022,7 +1030,7 @@ export async function runCycle(options?: {
     state = await loadState();
     if (state.mode === "SLEEP") {
       state = resetAfterSleep(state);
-      state = await transition(state, "WAKE", "forced wake after sleep cycle (safety net)");
+      state = await transitionAndClear(state, "WAKE", "forced wake after sleep cycle (safety net)");
     }
   }
 

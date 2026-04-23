@@ -157,7 +157,7 @@ function num(n: number): string {
 const w = (s: string) => process.stdout.write(s);
 
 function cols(): number {
-  return process.stdout.columns || 80;
+  return process.stdout.columns || Number(process.env.COLUMNS) || 120;
 }
 
 function hrLine(char = "─"): string {

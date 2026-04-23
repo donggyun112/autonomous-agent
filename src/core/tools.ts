@@ -678,6 +678,7 @@ const globTool: Tool = {
     try {
       const out = execFileSync("find", [dir, "-type", "f", "-name", pattern.includes("/") ? pattern.split("/").pop()! : pattern], {
         encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 1024,
+        stdio: ["pipe", "pipe", "pipe"],
       }).trim();
       if (!out) return "(no files matched)";
       const files = out.split("\n").slice(0, 100);
@@ -764,6 +765,7 @@ const grepTool: Tool = {
         args.push(pattern, dir);
         const out = execFileSync(cmd, args, {
           encoding: "utf-8", timeout: 15000, maxBuffer: 2 * 1024 * 1024,
+          stdio: ["pipe", "pipe", "pipe"],
         }).trim();
         if (!out) return "(no matches)";
         const lines = out.split("\n");

@@ -57,6 +57,13 @@ function clineApiBaseUrl(): string {
   return raw.replace(/\/api\/?$/, "").replace(/\/$/, "");
 }
 
+// Since 2026-07 the Cline gateway requires a scheme prefix on WorkOS JWTs;
+// bare eyJ… tokens get 401 "re-authenticate your Cline account". The refresh
+// endpoint still returns bare JWTs, so normalize wherever a token surfaces.
+function normalizeAccessToken(token: string): string {
+  return token.startsWith("eyJ") ? `workos:${token}` : token;
+}
+
 function isExpiring(auth: ClineAuth, skewMs = 60_000): boolean {
   if (typeof auth.expiresAt !== "number") return false;
   return Date.now() + skewMs >= expirySeconds(auth.expiresAt) * 1000;
@@ -117,7 +124,7 @@ async function refreshClineAccessToken(auth: ClineAuth): Promise<ClineAuth> {
 
   const nextAuth: ClineAuth = {
     ...auth,
-    accessToken: json.data.accessToken,
+    accessToken: normalizeAccessToken(json.data.accessToken),
     refreshToken: json.data.refreshToken ?? auth.refreshToken,
     expiresAt: expires,
     accountId: json.data.userInfo?.clineUserId ?? auth.accountId,
@@ -166,5 +173,5 @@ export async function loadClineAccessToken(options?: { forceRefresh?: boolean })
     throw new Error(`No Cline auth. Run Cline auth or set CLINE_ACCESS_TOKEN. Checked ${providersPath()}.`);
   }
 
-  return token;
+  return normalizeAccessToken(token);
 }

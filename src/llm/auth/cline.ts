@@ -58,8 +58,11 @@ function clineApiBaseUrl(): string {
 }
 
 // Since 2026-07 the Cline gateway requires a scheme prefix on WorkOS JWTs;
-// bare eyJ… tokens get 401 "re-authenticate your Cline account". The refresh
-// endpoint still returns bare JWTs, so normalize wherever a token surfaces.
+// bare eyJ… tokens get 401 "re-authenticate your Cline account". Applied at
+// two sites with distinct jobs: refreshClineAccessToken persists the canonical
+// prefixed form to providers.json (matching what Cline CLI ≥3.0.37 writes),
+// and loadClineAccessToken's returns guarantee the wire format for every
+// source (env var, pre-existing bare token on disk, fresh refresh). Idempotent.
 function normalizeAccessToken(token: string): string {
   return token.startsWith("eyJ") ? `workos:${token}` : token;
 }
@@ -154,7 +157,7 @@ export async function refreshClineCredentials(): Promise<boolean> {
 
 export async function loadClineAccessToken(options?: { forceRefresh?: boolean }): Promise<string> {
   const envToken = process.env.CLINE_ACCESS_TOKEN?.trim();
-  if (envToken) return envToken;
+  if (envToken) return normalizeAccessToken(envToken);
 
   let auth = await loadAuthFromProvidersFile();
   if (options?.forceRefresh || isExpiring(auth)) {

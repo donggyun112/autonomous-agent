@@ -5,3 +5,6 @@ generations/
 shared/
 dist/
 .env.research
+node_modules/
+.pnpm-store/
+coverage/

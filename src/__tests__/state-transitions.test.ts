@@ -157,16 +157,27 @@ describe("tool mode filtering", () => {
     expect(names).toContain("recall_recent_journal");
   });
 
-  it("WAKE mode includes shell, read, web_search", async () => {
+  it("WAKE mode includes shell/read and only exposes web_search when configured", async () => {
     const { toolsForMode, resetActivatedTools } = await import("../core/tools.js");
+    const savedBraveKey = process.env.BRAVE_API_KEY;
+    delete process.env.BRAVE_API_KEY;
+
     resetActivatedTools("WAKE");
     const wakeTools = await toolsForMode("WAKE");
     const names = wakeTools.map(t => t.def.name);
 
     expect(names).toContain("shell");
     expect(names).toContain("read");
-    expect(names).toContain("web_search");
     expect(names).toContain("journal");
+    expect(names).not.toContain("web_search");
+
+    process.env.BRAVE_API_KEY = "test-brave-key";
+    resetActivatedTools("WAKE");
+    const configuredTools = await toolsForMode("WAKE");
+    expect(configuredTools.map(t => t.def.name)).toContain("web_search");
+
+    if (savedBraveKey === undefined) delete process.env.BRAVE_API_KEY;
+    else process.env.BRAVE_API_KEY = savedBraveKey;
   });
 
   it("REFLECT auto-activates memory and wiki", async () => {

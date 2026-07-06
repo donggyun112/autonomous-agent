@@ -155,7 +155,8 @@ export class OpenAIChatTransport implements LlmTransport {
 
     // Non-streaming when tools present (structured tool_calls response)
     if (hasTools) {
-      return this.parseNonStreaming(await res.json(), args);
+      const json = await res.json() as Record<string, unknown>;
+      return this.parseNonStreaming(json, args);
     }
 
     // Streaming when no tools (text-only response)

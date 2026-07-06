@@ -5,6 +5,7 @@
 
 import type { LlmTransport, TransportCallArgs } from "./types.js";
 import type { Message, ToolCall, ThinkResult } from "../types.js";
+import type { MessageCreateParamsBase, MessageStreamEvent } from "@anthropic-ai/sdk/resources/messages";
 
 // OAuth tokens from Anthropic's OAuth server require this identity prefix.
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -78,19 +79,21 @@ export class AnthropicTransport implements LlmTransport {
     }
 
     const tools = toAnthropicTools(args.tools);
-    const requestBody: Record<string, unknown> = {
+    const requestBody: MessageCreateParamsBase = {
       model: args.model,
       max_tokens: args.maxTokens,
       system: systemPrompt,
-      messages: toAnthropicMessages(args.messages),
+      messages: toAnthropicMessages(args.messages) as MessageCreateParamsBase["messages"],
     };
-    if (tools && tools.length > 0) requestBody.tools = tools;
+    if (tools && tools.length > 0) {
+      requestBody.tools = tools as MessageCreateParamsBase["tools"];
+    }
 
     // Streaming — use raw events for correct tool_use ordering.
     // content_block_start fires BEFORE input_json_delta, and
     // content_block_stop fires AFTER. The high-level helpers
     // (contentBlock, inputJson) don't guarantee this order.
-    const stream = client.messages.stream(requestBody as Parameters<typeof client.messages.stream>[0]);
+    const stream = client.messages.stream(requestBody);
 
     let text = "";
     const toolCalls: ToolCall[] = [];
@@ -99,13 +102,14 @@ export class AnthropicTransport implements LlmTransport {
     // Track tool blocks by index for multi-tool support
     const toolBlockIds: Record<number, { id: string; name: string }> = {};
 
-    stream.on("streamEvent", (event: Record<string, unknown>) => {
-      const type = event.type as string;
+    stream.on("streamEvent", (event: MessageStreamEvent) => {
+      const rawEvent = event as unknown as Record<string, unknown>;
+      const type = rawEvent.type as string;
 
       if (type === "content_block_start") {
-        const block = (event as { content_block?: Record<string, unknown> }).content_block;
+        const block = rawEvent.content_block as Record<string, unknown> | undefined;
         if (block?.type === "tool_use") {
-          const idx = (event as { index?: number }).index ?? 0;
+          const idx = (rawEvent.index as number | undefined) ?? 0;
           const id = block.id as string;
           const name = block.name as string;
           toolBlockIds[idx] = { id, name };
@@ -114,8 +118,8 @@ export class AnthropicTransport implements LlmTransport {
       }
 
       if (type === "content_block_delta") {
-        const delta = (event as { delta?: Record<string, unknown> }).delta;
-        const idx = (event as { index?: number }).index ?? 0;
+        const delta = rawEvent.delta as Record<string, unknown> | undefined;
+        const idx = (rawEvent.index as number | undefined) ?? 0;
         if (delta?.type === "text_delta" && typeof delta.text === "string") {
           text += delta.text;
           args.onEvent?.({ type: "text_delta", delta: delta.text });
@@ -129,7 +133,7 @@ export class AnthropicTransport implements LlmTransport {
       }
 
       if (type === "content_block_stop") {
-        const idx = (event as { index?: number }).index ?? 0;
+        const idx = (rawEvent.index as number | undefined) ?? 0;
         const tool = toolBlockIds[idx];
         if (tool) {
           args.onEvent?.({ type: "tool_use_end", id: tool.id });
@@ -137,7 +141,7 @@ export class AnthropicTransport implements LlmTransport {
       }
 
       if (type === "message_delta") {
-        const usage = (event as { usage?: Record<string, number> }).usage;
+        const usage = rawEvent.usage as Record<string, number> | undefined;
         if (usage?.output_tokens) outputTokens = usage.output_tokens;
       }
     });

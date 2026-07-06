@@ -113,6 +113,7 @@ function fnv1a(str: string): number {
 // Runs a small ONNX embedding model directly in Node.js. No server needed.
 
 const HF_MODEL = process.env.LOCAL_EMBEDDING_MODEL ?? "Xenova/all-MiniLM-L6-v2";
+const HF_TRANSFORMERS_MODULE: string = "@huggingface/transformers";
 let _hfPipeline: ((text: string, opts?: Record<string, unknown>) => Promise<{ data: Float32Array }>) | null = null;
 let _hfFailed = false;
 
@@ -121,7 +122,9 @@ async function embedHF(text: string): Promise<number[]> {
 
   if (!_hfPipeline) {
     try {
-      const { pipeline } = await import("@huggingface/transformers");
+      const { pipeline } = await import(HF_TRANSFORMERS_MODULE) as {
+        pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>;
+      };
       _hfPipeline = (await pipeline("feature-extraction", HF_MODEL, {
         dtype: "fp32",
       })) as unknown as typeof _hfPipeline;

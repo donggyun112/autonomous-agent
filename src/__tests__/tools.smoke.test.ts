@@ -128,11 +128,6 @@ describe("recall tools", () => {
     expect(out).toContain("smoke test thought");
   });
 
-  it("scan_recent returns something", async () => {
-    const tool = await findTool("scan_recent");
-    const out = await tool.handler({ limit: 10 });
-    expect(typeof out).toBe("string");
-  });
 });
 
 // ── wiki ─────────────────────────────────────────────────────────────────

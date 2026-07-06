@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { resolveProviderFromModel, createDefaultRegistry } from "../llm/adapter.js";
 
 describe("resolveProviderFromModel", () => {
@@ -69,11 +69,28 @@ describe("think() with mock", () => {
 });
 
 describe("registry providers", () => {
-  it("lists registered providers (no mock)", () => {
+  it("lists configured providers and omits mock", () => {
+    const saved = {
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      local: process.env.LOCAL_LLM_URL,
+    };
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.LOCAL_LLM_URL = "http://localhost:8080";
+
     const registry = createDefaultRegistry();
     const providers = registry.providers;
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
+    expect(providers).toContain("local");
     expect(providers).not.toContain("mock");
+
+    if (saved.anthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = saved.anthropic;
+    if (saved.openai === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = saved.openai;
+    if (saved.local === undefined) delete process.env.LOCAL_LLM_URL;
+    else process.env.LOCAL_LLM_URL = saved.local;
   });
 });

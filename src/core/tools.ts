@@ -9,7 +9,7 @@
 //
 // ── Tool categories at a glance ────────────────────────────────────────
 //
-//   Thinking:       journal, recall_self, recall_memory, scan_recent, dream
+//   Thinking:       journal, recall_self, recall_memory, recall_recent_journal, dream
 //   Identity:       update_whoAmI, check_continuity
 //   Knowledge:      wiki_list, wiki_read, wiki_update, wiki_lint
 //   World:          read, web_search

@@ -4,6 +4,7 @@
   "description": "An agent that lives the question of who it is.",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "cycle": "tsx src/cli.ts cycle",
     "live": "tsx src/cli.ts live",
@@ -16,7 +17,8 @@
     "reply": "tsx src/cli.ts reply",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc"
+    "build": "tsc",
+    "doctor": "pnpm run build && pnpm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",

@@ -46,6 +46,15 @@ function parseToolJson(result: unknown): unknown {
   }
 }
 
+function normalizeKeys(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  // list_memories returns keys as strings; recall(inject) returns them as
+  // { concept, key_id } objects. Normalize both to concept strings.
+  return value.map((k) =>
+    typeof k === "string" ? k : String((k as { concept?: unknown })?.concept ?? k),
+  );
+}
+
 function normalizeMemory(item: unknown): MemoryRecord {
   const rec = item && typeof item === "object" ? item as JsonObject : {};
   const id = String(rec.id ?? rec.memory_id ?? rec.saved ?? "");
@@ -57,7 +66,7 @@ function normalizeMemory(item: unknown): MemoryRecord {
     depth: typeof rec.depth === "number" ? rec.depth : undefined,
     access_count: typeof rec.access_count === "number" ? rec.access_count : undefined,
     created_at: typeof rec.created_at === "number" ? rec.created_at : undefined,
-    keys: Array.isArray(rec.keys) ? rec.keys.map(String) : undefined,
+    keys: normalizeKeys(rec.keys),
     source: rec.source && typeof rec.source === "object" ? rec.source as Record<string, unknown> : null,
     namespace: typeof rec.namespace === "string" ? rec.namespace : undefined,
     links: Array.isArray(rec.links) ? rec.links.map(String) : undefined,
@@ -95,7 +104,11 @@ class McpStdioClient {
 
   private async init(): Promise<void> {
     if (this.initialized) return this.initialized;
-    this.initialized = this.start();
+    this.initialized = this.start().catch((err) => {
+      // Don't cache a rejected initialize forever — allow the next call to retry.
+      this.initialized = null;
+      throw err;
+    });
     return this.initialized;
   }
 
@@ -105,6 +118,12 @@ class McpStdioClient {
     const env = {
       ...process.env,
       KEYMEM_DIRECT_RECALL: process.env.KEYMEM_DIRECT_RECALL ?? "true",
+      // KeyMem's default local model (fast-multilingual-e5-large) is frequently
+      // an incomplete download (model.onnx missing), which makes `recall` fail
+      // with "Failed to initialize local fastembed model". Match the known-good
+      // MCP config and default to bge-m3. Any user-provided value still wins.
+      EMBEDDING_BACKEND: process.env.EMBEDDING_BACKEND ?? "local",
+      LOCAL_EMBEDDING_MODEL: process.env.LOCAL_EMBEDDING_MODEL ?? "bge-m3",
     };
     this.child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env });
     this.child.stdout.on("data", (chunk) => this.onStdout(chunk));
@@ -146,28 +165,26 @@ class McpStdioClient {
   }
 
   private send(message: JsonObject): void {
-    const body = JSON.stringify(message);
-    this.child?.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf-8")}\r\n\r\n${body}`);
+    // MCP stdio transport frames messages as newline-delimited JSON — NOT the
+    // LSP-style Content-Length header. JSON.stringify never emits embedded
+    // newlines, so a single trailing "\n" is a complete frame.
+    this.child?.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
   private onStdout(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk]);
     while (true) {
-      const sep = this.buffer.indexOf("\r\n\r\n");
-      if (sep === -1) return;
-      const header = this.buffer.slice(0, sep).toString("utf-8");
-      const match = header.match(/content-length:\s*(\d+)/i);
-      if (!match) {
-        this.buffer = this.buffer.slice(sep + 4);
-        continue;
+      const nl = this.buffer.indexOf(0x0a); // "\n"
+      if (nl === -1) return;
+      const line = this.buffer.slice(0, nl).toString("utf-8").trim();
+      this.buffer = this.buffer.slice(nl + 1);
+      if (!line) continue;
+      let response: RpcResponse;
+      try {
+        response = JSON.parse(line) as RpcResponse;
+      } catch {
+        continue; // ignore any non-JSON line the server may emit on stdout
       }
-      const length = Number(match[1]);
-      const start = sep + 4;
-      const end = start + length;
-      if (this.buffer.length < end) return;
-      const body = this.buffer.slice(start, end).toString("utf-8");
-      this.buffer = this.buffer.slice(end);
-      const response = JSON.parse(body) as RpcResponse;
       if (typeof response.id !== "number") continue;
       const pending = this.pending.get(response.id);
       if (!pending) continue;
@@ -188,13 +205,20 @@ export const keymemMcpBackend: MemoryBackend = {
   id: "keymem",
 
   async recall(query, topK = 5) {
-    const result = await client.callTool("recall_memories", {
+    // KeyMem's tool is `recall` (not `recall_memories`). Without inject it
+    // returns only key clusters; inject:true additionally returns the connected
+    // memories' content in `result.memories`, which is the record shape this
+    // backend contract expects.
+    const result = await client.callTool("recall", {
       query,
       top_k: topK,
-      expand: false,
-      hops: Number(process.env.KEYMEM_RECALL_HOPS ?? 2),
+      inject: true,
+      inject_top_k: topK,
     });
-    return asArray(result).map(normalizeMemory);
+    const memories = Array.isArray(result)
+      ? result
+      : (result as { memories?: unknown })?.memories;
+    return asArray(memories).map(normalizeMemory);
   },
 
   async remember(content, keys, options) {

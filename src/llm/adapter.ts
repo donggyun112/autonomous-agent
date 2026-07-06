@@ -1,6 +1,6 @@
 // LLM Adapter interface and registry.
 //
-// Three providers: anthropic, openai, local.
+// Providers: anthropic, openai, local, cline.
 // Each provider uses a transport (anthropic-messages or openai-chat)
 // wrapped in a unified SdkAdapter.
 
@@ -19,6 +19,7 @@ export interface LlmAdapter {
 export function resolveProviderFromModel(model: string): LlmProvider | null {
   if (model.startsWith("claude-")) return "anthropic";
   if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
+  if (model.startsWith("zai/") || model.startsWith("anthropic/") || model.startsWith("openai/")) return "cline";
   // Don't auto-route unknown models to local — let the configured default provider handle them.
   return null;
 }
@@ -141,6 +142,25 @@ export function createDefaultRegistry(): AdapterRegistry {
   }
 
   // ── Mock (for testing) ──────────────────────────────────────────
+  const wantsCline =
+    process.env.AGENT_LLM?.toLowerCase() === "cline" ||
+    process.env.CLINE_ENABLED === "1" ||
+    !!process.env.CLINE_ACCESS_TOKEN;
+  if (wantsCline) {
+    registry.register("cline", async () => {
+      const { OpenAIChatTransport } = await import("./transports/openai-chat.js");
+      const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
+      const { loadClineAccessToken } = await import("./auth/cline.js");
+      return new SdkAdapter({
+        id: "cline",
+        transport: new OpenAIChatTransport(),
+        getApiKey: loadClineAccessToken,
+        baseUrl: process.env.CLINE_BASE_URL ?? "https://api.cline.bot/api",
+        forceNonStreaming: true,
+      });
+    });
+  }
+
   registry.register("mock", async () => {
     const { MockAdapter } = await import("./adapters/mock.js");
     return new MockAdapter();

@@ -15,6 +15,10 @@ describe("resolveProviderFromModel", () => {
     expect(resolveProviderFromModel("some-local-model")).toBeNull();
     expect(resolveProviderFromModel("custom-model")).toBeNull();
   });
+  it("resolves routed gateway model IDs → cline", () => {
+    expect(resolveProviderFromModel("zai/glm-5.2")).toBe("cline");
+    expect(resolveProviderFromModel("anthropic/claude-sonnet-4-20250514")).toBe("cline");
+  });
 });
 
 describe("mock adapter via registry", () => {
@@ -74,16 +78,19 @@ describe("registry providers", () => {
       anthropic: process.env.ANTHROPIC_API_KEY,
       openai: process.env.OPENAI_API_KEY,
       local: process.env.LOCAL_LLM_URL,
+      clineEnabled: process.env.CLINE_ENABLED,
     };
     process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
     process.env.OPENAI_API_KEY = "test-openai-key";
     process.env.LOCAL_LLM_URL = "http://localhost:8080";
+    process.env.CLINE_ENABLED = "1";
 
     const registry = createDefaultRegistry();
     const providers = registry.providers;
     expect(providers).toContain("anthropic");
     expect(providers).toContain("openai");
     expect(providers).toContain("local");
+    expect(providers).toContain("cline");
     expect(providers).not.toContain("mock");
 
     if (saved.anthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
@@ -92,5 +99,7 @@ describe("registry providers", () => {
     else process.env.OPENAI_API_KEY = saved.openai;
     if (saved.local === undefined) delete process.env.LOCAL_LLM_URL;
     else process.env.LOCAL_LLM_URL = saved.local;
+    if (saved.clineEnabled === undefined) delete process.env.CLINE_ENABLED;
+    else process.env.CLINE_ENABLED = saved.clineEnabled;
   });
 });

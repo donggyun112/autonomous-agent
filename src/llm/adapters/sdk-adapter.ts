@@ -14,6 +14,7 @@ export interface SdkAdapterConfig {
   transport: LlmTransport;
   getApiKey: () => Promise<string>;
   baseUrl?: string;
+  forceNonStreaming?: boolean;
   rotateCredentialFn?: () => Promise<boolean>;
   defaultSampling?: SamplingParams;
 }
@@ -44,6 +45,7 @@ export class SdkAdapter implements LlmAdapter {
       config: {
         baseUrl: this.config.baseUrl ?? "",
         apiKey,
+        forceNonStreaming: this.config.forceNonStreaming,
         ...(args.tools ? {} : {}),
       },
     });

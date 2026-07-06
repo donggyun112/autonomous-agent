@@ -9,7 +9,9 @@ import type { Message, ToolCall, ToolDefinition, ThinkResult } from "../types.js
 // ── Message conversion (ours → OpenAI chat format) ─────────────────────
 
 function toOpenAIMessages(systemPrompt: string, messages: Message[]): unknown[] {
-  const out: unknown[] = [{ role: "system", content: systemPrompt }];
+  const out: unknown[] = systemPrompt.trim()
+    ? [{ role: "system", content: systemPrompt }]
+    : [];
 
   for (const msg of messages) {
     if (msg.role === "user" && typeof msg.content === "string") {
@@ -54,6 +56,35 @@ function toOpenAITools(tools?: ToolDefinition[]) {
     type: "function",
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function unwrapResponse(json: Record<string, unknown>): Record<string, unknown> {
+  if (json.success === false) {
+    const error = typeof json.error === "string" ? json.error : JSON.stringify(json.error ?? json);
+    throw new Error(`OpenAI-chat wrapped error: ${error}`);
+  }
+  return asRecord(json.data) ?? json;
+}
+
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === "string") return item;
+      const record = asRecord(item);
+      const text = record?.text ?? record?.content;
+      return typeof text === "string" ? text : "";
+    }).join("");
+  }
+  const record = asRecord(content);
+  const text = record?.text ?? record?.content;
+  return typeof text === "string" ? text : "";
 }
 
 // ── SSE stream parsing ─────────────────────────────────────────────────
@@ -105,11 +136,12 @@ export class OpenAIChatTransport implements LlmTransport {
     const url = `${args.config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
     const hasTools = args.tools && args.tools.length > 0;
+    const shouldStream = !hasTools && !args.config.forceNonStreaming;
     const body: Record<string, unknown> = {
       model: args.model,
       messages: toOpenAIMessages(args.systemPrompt, args.messages),
       max_tokens: args.maxTokens,
-      stream: !hasTools, // non-streaming when tools present for structured tool_calls
+      stream: shouldStream, // non-streaming when tools present or the gateway requires it
     };
 
     // Sampling params
@@ -153,9 +185,10 @@ export class OpenAIChatTransport implements LlmTransport {
       throw new Error(`OpenAI-chat error ${res.status}: ${errText}`);
     }
 
-    // Non-streaming when tools present (structured tool_calls response)
-    if (hasTools) {
-      const json = await res.json() as Record<string, unknown>;
+    // Non-streaming when tools present (structured tool_calls response), or when
+    // an OpenAI-compatible gateway wraps/does not stream responses.
+    if (!shouldStream) {
+      const json = unwrapResponse(await res.json() as Record<string, unknown>);
       return this.parseNonStreaming(json, args);
     }
 
@@ -172,7 +205,7 @@ export class OpenAIChatTransport implements LlmTransport {
     const msg = choices?.[0]?.message as Record<string, unknown> | undefined;
     const usage = json.usage as Record<string, number> | undefined;
 
-    let text = typeof msg?.content === "string" ? msg.content : "";
+    let text = contentToText(msg?.content);
     const toolCalls: ToolCall[] = [];
 
     // mlx-lm sends thinking as a separate `reasoning` field

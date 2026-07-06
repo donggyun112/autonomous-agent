@@ -16,6 +16,7 @@ export interface TransportConfig {
   baseUrl: string;
   apiKey: string;
   headers?: Record<string, string>;
+  forceNonStreaming?: boolean;
 }
 
 export interface TransportCallArgs {

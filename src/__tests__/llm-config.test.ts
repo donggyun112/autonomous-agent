@@ -43,6 +43,16 @@ describe("resolveProviderConfig", () => {
     expect(config.defaultModel).toBe("mlx-community/Qwen3.6-35B-A3B-4bit");
   });
 
+  it("uses Cline defaults when AGENT_LLM=cline", () => {
+    const config = resolveProviderConfig({
+      AGENT_LLM: "cline",
+    });
+
+    expect(config.provider).toBe("cline");
+    expect(config.defaultModel).toBe("zai/glm-5.2");
+    expect(config.auxiliaryModel).toBe("zai/glm-5.2");
+  });
+
   it("maps ollama to local for backwards compat", () => {
     const config = resolveProviderConfig({
       AGENT_LLM: "ollama",

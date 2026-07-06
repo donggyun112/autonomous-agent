@@ -33,6 +33,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
 const DEFAULT_ANTHROPIC_AUXILIARY_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 const DEFAULT_OPENAI_AUXILIARY_MODEL = "gpt-5.4-nano";
+const DEFAULT_CLINE_MODEL = "zai/glm-5.2";
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   for (const value of values) {
@@ -45,6 +46,7 @@ function normalizeProvider(rawProvider: string | undefined, env: NodeJS.ProcessE
   const p = rawProvider?.toLowerCase();
   if (p === "openai") return "openai";
   if (p === "local" || p === "ollama") return "local";
+  if (p === "cline") return "cline";
   if (p === "anthropic") return "anthropic";
   // Default: if LOCAL_LLM_URL is set, use local; otherwise anthropic
   if (env.LOCAL_LLM_URL) return "local";
@@ -77,6 +79,15 @@ export function resolveProviderConfig(
       auxiliaryModel:
         firstNonEmpty(env.AUXILIARY_MODEL, env.OPENAI_AUXILIARY_MODEL) ??
         DEFAULT_OPENAI_AUXILIARY_MODEL,
+    };
+  }
+
+  if (provider === "cline") {
+    const model = firstNonEmpty(env.AGENT_MODEL, env.CLINE_MODEL) ?? DEFAULT_CLINE_MODEL;
+    return {
+      provider,
+      defaultModel: model,
+      auxiliaryModel: firstNonEmpty(env.AUXILIARY_MODEL, env.CLINE_AUXILIARY_MODEL) ?? model,
     };
   }
 
@@ -125,6 +136,9 @@ function defaultModelFor(provider: LlmProvider): string {
   }
   if (provider === "anthropic") {
     return firstNonEmpty(process.env.ANTHROPIC_MODEL) ?? DEFAULT_ANTHROPIC_MODEL;
+  }
+  if (provider === "cline") {
+    return firstNonEmpty(process.env.CLINE_MODEL) ?? DEFAULT_CLINE_MODEL;
   }
   // Local providers use LOCAL_LLM_MODEL
   if (process.env.LOCAL_LLM_URL) {

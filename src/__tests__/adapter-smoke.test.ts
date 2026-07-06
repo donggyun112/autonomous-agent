@@ -16,6 +16,7 @@ describe("resolveProviderFromModel", () => {
     expect(resolveProviderFromModel("custom-model")).toBeNull();
   });
   it("resolves routed gateway model IDs → cline", () => {
+    expect(resolveProviderFromModel("cline-pass/glm-5.2")).toBe("cline");
     expect(resolveProviderFromModel("zai/glm-5.2")).toBe("cline");
     expect(resolveProviderFromModel("anthropic/claude-sonnet-4-20250514")).toBe("cline");
   });

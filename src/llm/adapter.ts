@@ -19,7 +19,12 @@ export interface LlmAdapter {
 export function resolveProviderFromModel(model: string): LlmProvider | null {
   if (model.startsWith("claude-")) return "anthropic";
   if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
-  if (model.startsWith("zai/") || model.startsWith("anthropic/") || model.startsWith("openai/")) return "cline";
+  if (
+    model.startsWith("cline-pass/") ||
+    model.startsWith("zai/") ||
+    model.startsWith("anthropic/") ||
+    model.startsWith("openai/")
+  ) return "cline";
   // Don't auto-route unknown models to local — let the configured default provider handle them.
   return null;
 }
@@ -150,13 +155,14 @@ export function createDefaultRegistry(): AdapterRegistry {
     registry.register("cline", async () => {
       const { OpenAIChatTransport } = await import("./transports/openai-chat.js");
       const { SdkAdapter } = await import("./adapters/sdk-adapter.js");
-      const { loadClineAccessToken } = await import("./auth/cline.js");
+      const { loadClineAccessToken, refreshClineCredentials } = await import("./auth/cline.js");
       return new SdkAdapter({
         id: "cline",
         transport: new OpenAIChatTransport(),
         getApiKey: loadClineAccessToken,
         baseUrl: process.env.CLINE_BASE_URL ?? "https://api.cline.bot/api",
         forceNonStreaming: true,
+        rotateCredentialFn: () => refreshClineCredentials(),
       });
     });
   }

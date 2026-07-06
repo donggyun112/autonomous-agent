@@ -1,0 +1,2 @@
+{"id":"smoke-001","benchmark":"smoke","question":"What is the capital of South Korea?","answer":"Seoul","prediction":"seoul","tags":["exact-answer"]}
+{"id":"smoke-002","benchmark":"smoke","question":"Return the two primary boolean values in JavaScript, alphabetically.","answer":["false","true"],"prediction":"false, true","tags":["list-answer"]}

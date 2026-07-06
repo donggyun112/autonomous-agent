@@ -2143,13 +2143,24 @@ export function resetActivatedTools(mode?: string): void {
 // All tools = core + activated extended + meta-tool.
 const ALL_TOOLS: Tool[] = [...CORE_TOOLS, ...EXTENDED_TOOLS, moreToolsTool];
 
+function dedupeTools(tools: Tool[]): Tool[] {
+  const seen = new Set<string>();
+  const deduped: Tool[] = [];
+  for (const tool of tools) {
+    if (seen.has(tool.def.name)) continue;
+    seen.add(tool.def.name);
+    deduped.push(tool);
+  }
+  return deduped;
+}
+
 // #17: Populate the global tool registry so other modules (e.g. subagent-loader)
 // can look up tool definitions and handlers by name.
-registry.registerAll(ALL_TOOLS);
+registry.registerAll(dedupeTools(ALL_TOOLS));
 
 /** Dynamic list of extended tool names — used in system prompt and more_tools. */
 export function extendedToolNames(): string[] {
-  return EXTENDED_TOOLS.map((t) => t.def.name);
+  return [...new Set(EXTENDED_TOOLS.map((t) => t.def.name))];
 }
 
 /**
@@ -2173,13 +2184,13 @@ export async function toolsForMode(mode: Mode): Promise<Tool[]> {
     }),
   );
 
-  return stateFiltered.filter((_, i) => checks[i]);
+  return dedupeTools(stateFiltered.filter((_, i) => checks[i]));
 }
 
 /** Dispatch uses ALL tools (core + extended) so activated tools work. */
 
 export function toolDefs(tools: Tool[]): ToolDefinition[] {
-  return tools.map((t) => t.def);
+  return dedupeTools(tools).map((t) => t.def);
 }
 
 // Check whether a tool's output should be preserved during pre-compaction

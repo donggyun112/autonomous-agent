@@ -49,8 +49,8 @@ describe("resolveProviderConfig", () => {
     });
 
     expect(config.provider).toBe("cline");
-    expect(config.defaultModel).toBe("zai/glm-5.2");
-    expect(config.auxiliaryModel).toBe("zai/glm-5.2");
+    expect(config.defaultModel).toBe("cline-pass/glm-5.2");
+    expect(config.auxiliaryModel).toBe("cline-pass/glm-5.2");
   });
 
   it("maps ollama to local for backwards compat", () => {

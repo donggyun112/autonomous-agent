@@ -23,6 +23,11 @@ export type SessionMeta = {
   startedAt: string;
   mode: string;
   turnCount: number;
+  messageCount?: number;
+  modeTurn?: number;
+  cycle?: number;
+  sleepCount?: number;
+  lastUpdatedAt?: string;
   lastCompactedAt?: string;
 };
 
@@ -44,20 +49,52 @@ export async function getSessionMeta(): Promise<SessionMeta | null> {
   return loadSessionMeta();
 }
 
-export async function initSessionMeta(mode: string): Promise<void> {
+export async function initSessionMeta(
+  mode: string,
+  snapshot?: { turnCount?: number; modeTurn?: number; cycle?: number; sleepCount?: number },
+): Promise<void> {
   const existing = await loadSessionMeta();
   if (existing) return; // already initialized for this session
   await saveSessionMeta({
     startedAt: new Date().toISOString(),
     mode,
-    turnCount: 0,
+    turnCount: snapshot?.turnCount ?? 0,
+    modeTurn: snapshot?.modeTurn,
+    cycle: snapshot?.cycle,
+    sleepCount: snapshot?.sleepCount,
+    messageCount: 0,
+    lastUpdatedAt: new Date().toISOString(),
   });
 }
 
-export async function incrementSessionTurn(): Promise<void> {
+async function incrementSessionMessageCount(): Promise<void> {
   const meta = await loadSessionMeta();
   if (!meta) return;
-  meta.turnCount += 1;
+  meta.messageCount = (meta.messageCount ?? 0) + 1;
+  meta.lastUpdatedAt = new Date().toISOString();
+  await saveSessionMeta(meta);
+}
+
+export async function recordSessionTurn(snapshot: {
+  mode: string;
+  turnCount: number;
+  modeTurn: number;
+  cycle: number;
+  sleepCount: number;
+}): Promise<void> {
+  const existing = await loadSessionMeta();
+  const meta: SessionMeta = existing ?? {
+    startedAt: new Date().toISOString(),
+    mode: snapshot.mode,
+    turnCount: snapshot.turnCount,
+    messageCount: 0,
+  };
+  meta.mode = snapshot.mode;
+  meta.turnCount = snapshot.turnCount;
+  meta.modeTurn = snapshot.modeTurn;
+  meta.cycle = snapshot.cycle;
+  meta.sleepCount = snapshot.sleepCount;
+  meta.lastUpdatedAt = new Date().toISOString();
   await saveSessionMeta(meta);
 }
 
@@ -80,7 +117,7 @@ export async function appendMessage(message: Message): Promise<void> {
   await mkdir(dirname(SESSION_FILE), { recursive: true });
   await appendFile(SESSION_FILE, JSON.stringify(message) + "\n", "utf-8");
   try {
-    await incrementSessionTurn();
+    await incrementSessionMessageCount();
   } catch {
     // meta tracking failure should not block the session
   }
@@ -111,7 +148,13 @@ export async function replaceSession(messages: Message[]): Promise<void> {
   const lines = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
   await writeFile(SESSION_FILE, lines, "utf-8");
   try {
-    await markSessionCompacted();
+    const meta = await loadSessionMeta();
+    if (meta) {
+      meta.messageCount = messages.length;
+      meta.lastCompactedAt = new Date().toISOString();
+      meta.lastUpdatedAt = new Date().toISOString();
+      await saveSessionMeta(meta);
+    }
   } catch {
     // meta tracking failure should not block compaction
   }
@@ -268,7 +311,13 @@ export async function rewindToCheckpoint(id: string): Promise<boolean> {
     // Reset session meta to match the checkpoint state.
     const text = await readFile(join(SESSION_CHECKPOINT_DIR, `${id}.jsonl`), "utf-8");
     const msgCount = text.split("\n").filter(l => l.trim()).length;
-    await saveSessionMeta({ startedAt: id.replace(/-/g, ":").slice(0, 19), mode: "WAKE", turnCount: msgCount });
+    await saveSessionMeta({
+      startedAt: id.replace(/-/g, ":").slice(0, 19),
+      mode: "WAKE",
+      turnCount: 0,
+      messageCount: msgCount,
+      lastUpdatedAt: new Date().toISOString(),
+    });
     return true;
   } catch { return false; }
 }

@@ -76,6 +76,7 @@ import {
   loadSession,
   replaceSession,
   initSessionMeta,
+  recordSessionTurn,
 } from "./session-store.js";
 import { runSleepConsolidation, type SleepReport } from "./sleep.js";
 import { DATA, SRC } from "../primitives/paths.js";
@@ -510,6 +511,17 @@ export async function runCycle(options?: {
   // Session persistence: messages are saved to data/session.jsonl on every
   // turn. On restart, we reload them so the agent continues mid-thought.
   // Only start fresh if no prior session exists.
+  try {
+    await initSessionMeta(state.mode, {
+      turnCount: state.totalTurns,
+      modeTurn: state.modeTurn,
+      cycle: state.cycle,
+      sleepCount: state.sleepCount,
+    });
+  } catch {
+    // meta init failure should not block the cycle
+  }
+
   let messages: Message[] = await loadSession();
   if (messages.length === 0) {
     // Fresh session — build context-rich opening.
@@ -537,13 +549,6 @@ export async function runCycle(options?: {
     };
     messages.push(restartCtx);
     await appendMessage(restartCtx);
-  }
-
-  // Initialize session meta for continuity tracking.
-  try {
-    await initSessionMeta(state.mode);
-  } catch {
-    // meta init failure should not block the cycle
   }
 
   let toolCallCount = 0;
@@ -604,7 +609,8 @@ export async function runCycle(options?: {
       }
     }
 
-    observer?.onTurnStart?.(turn, state.mode);
+    const displayTurn = state.totalTurns;
+    observer?.onTurnStart?.(displayTurn, state.mode);
     await maybeCompactConversation();
     const response = await think({
       systemPrompt,
@@ -619,6 +625,17 @@ export async function runCycle(options?: {
     state.modeTurn += 1;
     state.totalTurns += 1;
     actualTurns += 1;
+    try {
+      await recordSessionTurn({
+        mode: state.mode,
+        turnCount: state.totalTurns,
+        modeTurn: state.modeTurn,
+        cycle: state.cycle,
+        sleepCount: state.sleepCount,
+      });
+    } catch {
+      // session meta tracking failure should not block the cycle
+    }
 
     // If the response had no tool calls, auto-journal and continue.
     // The session stays alive so the agent builds on its own thoughts.
@@ -873,7 +890,7 @@ export async function runCycle(options?: {
     // half so we can continue without blowing the context. Cheap LLM call.
     await maybeCompactConversation();
 
-    observer?.onTurnEnd?.(turn);
+    observer?.onTurnEnd?.(displayTurn);
 
     // GPU cooldown between turns — prevents sustained 90°C+ on Apple Silicon.
     const TURN_COOLDOWN_MS = Number(process.env.TURN_COOLDOWN_MS) || 10000;

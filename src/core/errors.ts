@@ -83,6 +83,10 @@ export function classifyError(err: unknown): ClassifiedError {
     lower.includes("rate limit") ||
     lower.includes("rate_limit") ||
     lower.includes("too many requests") ||
+    lower.includes("insufficient_credits") ||
+    lower.includes("insufficient credits") ||
+    lower.includes("insufficient balance") ||
+    lower.includes("cline credits balance") ||
     lower.includes("throttl")
   ) {
     return {

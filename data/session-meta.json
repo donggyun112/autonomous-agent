@@ -1,5 +1,6 @@
 {
-  "startedAt": "2026-04-17T07:06:46.484Z",
+  "startedAt": "2026-07-06T05:09:02.649Z",
   "mode": "WAKE",
-  "turnCount": 62
+  "turnCount": 229,
+  "lastCompactedAt": "2026-07-06T06:12:51.757Z"
 }

@@ -25,9 +25,10 @@
 
 import { existsSync } from "fs";
 import { copyFile, mkdir, readdir, readFile, stat } from "fs/promises";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { createInterface } from "readline/promises";
 import { spawn, type ChildProcess } from "child_process";
+import { config } from "dotenv";
 import { runCycle } from "./core/cycle.js";
 import { popDueWake } from "./core/scheduled-wakes.js";
 import {
@@ -61,13 +62,17 @@ import {
 } from "./llm/auth/storage.js";
 import { resetAuthSource } from "./llm/auth/source.js";
 import { memoryStats } from "./primitives/recall.js";
-import { DATA, JOURNAL_DIR, LINEAGE, SRC, WHO_AM_I } from "./primitives/paths.js";
+import { DATA, JOURNAL_DIR, LINEAGE, ROOT, SRC, WHO_AM_I } from "./primitives/paths.js";
 import { createLiveObserver, printCycleSummary } from "./ui/observer.js";
 
-type RuntimeLlmProvider = "anthropic" | "openai";
+config();
+
+type RuntimeLlmProvider = "anthropic" | "openai" | "cline";
 
 function getConfiguredProvider(): RuntimeLlmProvider {
-  return process.env.AGENT_LLM?.toLowerCase() === "openai" ? "openai" : "anthropic";
+  const provider = process.env.AGENT_LLM?.toLowerCase();
+  if (provider === "openai" || provider === "cline") return provider;
+  return "anthropic";
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
@@ -78,9 +83,13 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
 }
 
 function getConfiguredModel(provider: RuntimeLlmProvider = getConfiguredProvider()): string {
-  return provider === "openai"
-    ? (firstNonEmpty(process.env.AGENT_MODEL, process.env.OPENAI_MODEL) ?? "gpt-5.4-mini")
-    : (firstNonEmpty(process.env.AGENT_MODEL, process.env.ANTHROPIC_MODEL) ?? "claude-opus-4-6");
+  if (provider === "openai") {
+    return firstNonEmpty(process.env.AGENT_MODEL, process.env.OPENAI_MODEL) ?? "gpt-5.4-mini";
+  }
+  if (provider === "cline") {
+    return firstNonEmpty(process.env.AGENT_MODEL, process.env.CLINE_MODEL) ?? "cline-pass/glm-5.2";
+  }
+  return firstNonEmpty(process.env.AGENT_MODEL, process.env.ANTHROPIC_MODEL) ?? "claude-opus-4-6";
 }
 
 function hasOpenAIAuth(creds: StoredCredentials): boolean {
@@ -99,6 +108,16 @@ async function describeLlmAuth(
       return "$OPENAI_API_KEY (environment)";
     }
     return "missing OpenAI credentials — set OPENAI_API_KEY";
+  }
+
+  if (provider === "cline") {
+    try {
+      const { loadClineAccessToken } = await import("./llm/auth/cline.js");
+      await loadClineAccessToken();
+      return process.env.CLINE_ACCESS_TOKEN ? "$CLINE_ACCESS_TOKEN (environment)" : "Cline providers.json";
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
 
   try {
@@ -316,21 +335,9 @@ async function whoamiCmd(): Promise<void> {
   const provider = getConfiguredProvider();
   console.log(`provider: ${provider}`);
   console.log(`model: ${getConfiguredModel(provider)}`);
-
-  if (provider === "openai" && creds.openai) {
-    console.log(`auth: OpenAI OAuth (expires ${new Date(creds.openai.expires).toISOString()})`);
+  console.log(`auth: ${await describeLlmAuth(provider, creds)}`);
+  if (provider !== "cline" && ((provider === "openai" && creds.openai) || (provider === "anthropic" && creds.anthropic))) {
     console.log(`file: ${credentialsFilePath()}`);
-  } else if (provider === "openai" && process.env.OPENAI_API_KEY) {
-    console.log("auth: $OPENAI_API_KEY (environment)");
-  } else if (provider === "openai") {
-    console.log("auth: (none) — set OPENAI_API_KEY");
-  } else if (creds.anthropic) {
-    console.log(`auth: Anthropic OAuth (expires ${new Date(creds.anthropic.expires).toISOString()})`);
-    console.log(`file: ${credentialsFilePath()}`);
-  } else if (process.env.ANTHROPIC_API_KEY) {
-    console.log("auth: $ANTHROPIC_API_KEY (environment)");
-  } else {
-    console.log("auth: (none) — run `pnpm run login` or set ANTHROPIC_API_KEY");
   }
 }
 
@@ -384,6 +391,88 @@ async function selfTest(args: string[]): Promise<void> {
   console.log(`[self-test] ${generationId} ok`);
 }
 
+async function evalResearchCmd(args: string[]): Promise<void> {
+  let file = "evals/research/smoke.jsonl";
+  let limit: number | undefined;
+  let model: string | undefined;
+  let dryRun = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") {
+      continue;
+    } else if (arg === "--limit" && args[i + 1]) {
+      limit = Number.parseInt(args[++i]!, 10);
+      if (!Number.isFinite(limit) || limit < 1) {
+        throw new Error("--limit must be a positive integer");
+      }
+    } else if (arg === "--model" && args[i + 1]) {
+      model = args[++i];
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--help" || arg === "-h") {
+      console.log("usage: cli.ts eval-research [file.jsonl] [--limit N] [--model MODEL] [--dry-run]");
+      return;
+    } else if (!arg.startsWith("--")) {
+      file = arg;
+    } else {
+      throw new Error(`unknown eval-research option: ${arg}`);
+    }
+  }
+
+  const { runResearchEval, formatResearchEvalSummary } = await import("./evals/research.js");
+  const evalFile = isAbsolute(file) ? file : join(ROOT, file);
+  const summary = await runResearchEval({
+    file: evalFile,
+    limit,
+    model,
+    dryRun,
+  });
+  console.log(formatResearchEvalSummary(summary));
+}
+
+async function migrateKeymemCmd(args: string[]): Promise<void> {
+  let dryRun = false;
+  let limit: number | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") {
+      continue;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--limit" && args[i + 1]) {
+      limit = Number.parseInt(args[++i]!, 10);
+      if (!Number.isFinite(limit) || limit < 1) {
+        throw new Error("--limit must be a positive integer");
+      }
+    } else if (arg === "--help" || arg === "-h") {
+      console.log("usage: cli.ts memory-migrate-keymem [--dry-run] [--limit N]");
+      return;
+    } else {
+      throw new Error(`unknown memory-migrate-keymem option: ${arg}`);
+    }
+  }
+
+  const { migrateLocalMemoriesToKeymem } = await import("./memory/keymem-migrate.js");
+  const result = await migrateLocalMemoriesToKeymem({ dryRun, limit });
+  console.log(`keymem migration ${result.dryRun ? "dry-run" : "complete"}`);
+  console.log(`planned: ${result.planned}`);
+  console.log(`migrated: ${result.migrated}`);
+  if (result.failed.length > 0) {
+    console.log(`failed: ${result.failed.length}`);
+    for (const failure of result.failed.slice(0, 10)) {
+      console.log(`- ${failure.oldId}: ${failure.error}`);
+    }
+  }
+  if (result.preview.length > 0) {
+    console.log("preview:");
+    for (const entry of result.preview) {
+      console.log(`- ${entry.oldId} (${entry.keys.join(", ") || "no keys"}): ${entry.content.slice(0, 100)}`);
+    }
+  }
+}
+
 // After a molt, the compose restart policy brings up a fresh container from
 // the newly-tagged :current image. When we boot here, we might find a
 // swap-pending marker left over from the previous container's exit. That's
@@ -416,9 +505,12 @@ async function live(): Promise<void> {
   let consecutiveErrors = 0;
 
   let running = true;
+  let signalCount = 0;
   process.on("SIGINT", () => {
-    console.log("\n[live] stopping after current cycle…");
+    signalCount += 1;
     running = false;
+    console.log(signalCount === 1 ? "\n[live] SIGINT received. Exiting now." : "\n[live] force exit.");
+    process.exit(130);
   });
 
   let consecutiveRests = 0;
@@ -598,6 +690,12 @@ async function main(): Promise<void> {
     case "self-test":
       await selfTest(rest);
       break;
+    case "eval-research":
+      await evalResearchCmd(rest);
+      break;
+    case "memory-migrate-keymem":
+      await migrateKeymemCmd(rest);
+      break;
     case "_mock-cycle":
       await runMockCycleTest();
       break;
@@ -626,7 +724,7 @@ async function main(): Promise<void> {
     }
     default:
       console.error(
-        "usage: cli.ts [--profile <name>] <init|cycle|live|status|login|logout|whoami|inbox|reply|doctor|self-test>",
+        "usage: cli.ts [--profile <name>] <init|cycle|live|status|login|logout|whoami|inbox|reply|doctor|eval-research|memory-migrate-keymem|self-test>",
       );
       process.exit(2);
   }

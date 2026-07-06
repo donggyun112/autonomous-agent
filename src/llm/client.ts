@@ -33,7 +33,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
 const DEFAULT_ANTHROPIC_AUXILIARY_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 const DEFAULT_OPENAI_AUXILIARY_MODEL = "gpt-5.4-nano";
-const DEFAULT_CLINE_MODEL = "zai/glm-5.2";
+const DEFAULT_CLINE_MODEL = "cline-pass/glm-5.2";
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   for (const value of values) {

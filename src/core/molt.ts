@@ -645,10 +645,8 @@ async function checkStateOps(): Promise<CheckResult> {
 async function checkMemoryGraph(): Promise<CheckResult> {
   const start = Date.now();
   try {
-    const { MemoryGraph } = await import("../memory/graph.js");
-    const g = new MemoryGraph();
-    await g.load();
-    const stats = g.stats();
+    const { memoryStats } = await import("../primitives/recall.js");
+    const stats = await memoryStats();
     if (typeof stats.memoryCount !== "number") {
       throw new Error(`invalid stats: ${JSON.stringify(stats)}`);
     }
@@ -665,6 +663,15 @@ async function checkMemoryGraph(): Promise<CheckResult> {
       detail: (err as Error).message,
       durationMs: Date.now() - start,
     };
+  } finally {
+    // The self-test runs in a short-lived subprocess; stop the KeyMem MCP
+    // child so it can exit cleanly instead of keeping the process alive.
+    try {
+      const { stopKeymemMcpBackend } = await import("../memory/keymem-mcp-backend.js");
+      stopKeymemMcpBackend();
+    } catch {
+      // ignore — nothing to stop
+    }
   }
 }
 

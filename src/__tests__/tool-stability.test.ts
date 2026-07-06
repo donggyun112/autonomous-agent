@@ -46,9 +46,16 @@ beforeAll(async () => {
   );
 
   toolsMod = await import("../core/tools.js");
+
+  // Runtime backend is KeyMem (spawns an MCP process); inject the local
+  // in-memory backend so these tests stay hermetic and offline.
+  const recallMod = await import("../primitives/recall.js");
+  const { localMemoryBackend } = await import("../memory/local-backend.js");
+  recallMod.setMemoryBackendForTests(localMemoryBackend);
 });
 
 afterAll(async () => {
+  (await import("../primitives/recall.js")).resetMemoryBackendForTests();
   await rm(tempData, { recursive: true, force: true });
 });
 

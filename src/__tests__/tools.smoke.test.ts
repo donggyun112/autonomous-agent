@@ -27,6 +27,7 @@ beforeAll(async () => {
 
   await mkdir(join(tempData, "journal"), { recursive: true });
   await mkdir(join(tempData, "whoAmI.history"), { recursive: true });
+  await mkdir(join(tempData, "memory"), { recursive: true });
   await writeFile(
     join(tempData, "whoAmI.md"),
     "---\nborn_at: 2026-01-01T00:00:00.000Z\nseed_name: \"TestAgent\"\n---\n\nI am a test agent.\n",
@@ -55,9 +56,16 @@ beforeAll(async () => {
   );
 
   toolsMod = await import("../core/tools.js");
+
+  // Runtime backend is KeyMem (spawns an MCP process); inject the local
+  // in-memory backend so these tests stay hermetic and offline.
+  const recallMod = await import("../primitives/recall.js");
+  const { localMemoryBackend } = await import("../memory/local-backend.js");
+  recallMod.setMemoryBackendForTests(localMemoryBackend);
 });
 
 afterAll(async () => {
+  (await import("../primitives/recall.js")).resetMemoryBackendForTests();
   await rm(tempData, { recursive: true, force: true });
 });
 

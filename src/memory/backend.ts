@@ -40,7 +40,3 @@ export type MemoryBackend = {
   linkMemories(memA: string, memB: string, viaKey: string): Promise<void>;
   memoryStats(): Promise<MemoryStats>;
 };
-
-export function memoryBackendKind(env: NodeJS.ProcessEnv = process.env): "local" | "keymem" {
-  return env.MEMORY_BACKEND?.trim().toLowerCase() === "keymem" ? "keymem" : "local";
-}

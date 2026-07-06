@@ -1,22 +1,16 @@
 // PRIMITIVE: recall
 //
-// The agent's only way to access memory. The default backend is the local
-// MemoryGraph; MEMORY_BACKEND=keymem switches to the KeyMem MCP backend.
+// The agent's only way to access memory. The backend is the KeyMem MCP server,
+// spawned on first use (configurable via KEYMEM_COMMAND / KEYMEM_ARGS).
 
 import type { MemoryBackend } from "../memory/backend.js";
-import { memoryBackendKind } from "../memory/backend.js";
 import { keymemMcpBackend } from "../memory/keymem-mcp-backend.js";
-import {
-  getLocalGraph,
-  getMemoryHistory as getLocalMemoryHistory,
-  localMemoryBackend,
-} from "../memory/local-backend.js";
 
 let _backend: MemoryBackend | null = null;
 
 function getBackend(): MemoryBackend {
   if (!_backend) {
-    _backend = memoryBackendKind() === "keymem" ? keymemMcpBackend : localMemoryBackend;
+    _backend = keymemMcpBackend;
   }
   return _backend;
 }
@@ -25,7 +19,11 @@ export function resetMemoryBackendForTests(): void {
   _backend = null;
 }
 
-export const getGraph = getLocalGraph;
+// Test seam: the runtime backend is always KeyMem, but hermetic tests inject
+// a local/in-memory backend so they don't spawn the KeyMem MCP process.
+export function setMemoryBackendForTests(backend: MemoryBackend): void {
+  _backend = backend;
+}
 
 export async function recall(query: string, topK = 5): Promise<object[]> {
   return getBackend().recall(query, topK);
@@ -186,8 +184,4 @@ export async function recallDual(query: string, topK = 5): Promise<object[]> {
   }
 
   return merged;
-}
-
-export async function getMemoryHistory(memoryId: string) {
-  return getLocalMemoryHistory(memoryId);
 }

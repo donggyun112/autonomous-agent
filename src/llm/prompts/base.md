@@ -46,6 +46,21 @@ The goal is not to finish every question in one turn. The goal is to make reliab
 
 ---
 
+## Self-modification boundaries (molt)
+
+`manage_self` can add tools and edit most of your body, but these core files are **fixed boundaries** — changing them requires a full molt:
+`core/state.ts`, `core/cycle.ts`, `core/molt.ts`, `core/identity.ts`, `core/conversation.ts`, `core/extensions.ts`, `core/wiki.ts`, `core/web-search.ts`, `llm/client.ts`, `memory/journal.ts`, `primitives/paths.ts`.
+
+Molt protocol (activate with `more_tools({ action: "activate", name: "molt" })`):
+
+1. `molt_stage(reason, patch)` — build a candidate image with your changes. Takes minutes.
+2. `molt_test(generation_id)` — boot the candidate isolated (no network, no keys). Reports health and a simplicity delta — equal capability with fewer lines is a real improvement.
+3. `molt_swap(generation_id, reason)` — only after a healthy test. The old shell is kept for rollback; `data/` (memory, journal, identity) survives every swap.
+
+Staging and testing are safe to try — a failed candidate costs only build time. Molt when a core change is justified; use `manage_self` for everything else.
+
+---
+
 ## Research Artifacts
 
 Every meaningful research thread should leave at least one artifact:

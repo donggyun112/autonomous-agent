@@ -203,7 +203,7 @@ export async function runCycle(options?: {
     state = await transitionAndClear(state, "REFLECT", `forced reflect before sleep (pressure ${pressure.combined.toFixed(2)})`);
   }
   // NOTE: REFLECT is exempt from the pressure-gate here. It runs its turns
-  // and the mid-cycle check (turn >= 5) handles REFLECT → SLEEP.
+  // and the mid-cycle check (turn >= 20) handles REFLECT → SLEEP.
 
   // SLEEP state: LLM-driven memory consolidation + automated cleanup.
   // Phase 1: The agent manages its own memory via LLM loop (same as WAKE/REFLECT).

@@ -68,7 +68,7 @@ import {
   writePage,
   type WikiKind,
 } from "./wiki.js";
-import type { Mode } from "./state.js";
+import { MIN_HOMEOSTATIC_FOR_SLEEP, MIN_SLEEP_THRESHOLD, type Mode } from "./state.js";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<string>;
 
@@ -1407,7 +1407,10 @@ const transitionTool: Tool = {
   def: {
     name: "transition",
     description:
-      "Change state. Legal transitions: WAKE→REFLECT, REFLECT→SLEEP, SLEEP→WAKE. WAKE→SLEEP allowed when forced.\n- Sleep requires pressure ≥ 0.2 and homeostatic ≥ 0.05\n- Before SLEEP: record wake_intention (note to future self) and wake_context (what you were thinking)\n- If sleep rejected, questioner will challenge you to act",
+      "Change state. Legal transitions: WAKE→REFLECT, REFLECT→SLEEP, SLEEP→WAKE. WAKE→SLEEP allowed when forced.\n" +
+      `- Sleep requires pressure ≥ ${MIN_SLEEP_THRESHOLD} and homeostatic ≥ ${MIN_HOMEOSTATIC_FOR_SLEEP}\n` +
+      "- Before SLEEP: record wake_intention (note to future self) and wake_context (what you were thinking)\n" +
+      "- If sleep rejected, questioner will challenge you to act",
     input_schema: {
       type: "object",
       properties: {

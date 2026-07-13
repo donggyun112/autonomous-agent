@@ -32,12 +32,13 @@ serve:
 			--use-paged-cache \
 			--enable-prefix-cache \
 			--kv-cache-quantization \
-			--kv-cache-quantization-bits 8 \
+			--kv-cache-quantization-bits 4 \
+			--cache-memory-mb 2048 \
 			--enable-auto-tool-choice \
 			--tool-call-parser qwen3_coder \
 			--reasoning-parser qwen3 \
-			--prefill-step-size 4096 \
-			--max-num-seqs 4 \
+			--prefill-step-size 2048 \
+			--max-num-seqs 1 \
 			> /tmp/vllm-mlx.log 2>&1 & \
 		echo "vllm-mlx PID: $$!"; \
 		sleep 10; \
